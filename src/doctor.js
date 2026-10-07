@@ -61,17 +61,19 @@ export async function doctor({ json = false } = {}) {
     console.log(`      config: ${a.current ?? '—'}`);
     console.log(`      e2e:    ${mark(probes[a.id].ok)} ${probes[a.id].detail}`);
   }
-  const { rtk, bili, headroomAll } = s.stats;
+  const { rtk, bili, headroomAll, headroomLedger } = s.stats;
   const n = (v) => v.toLocaleString('en-US');
   console.log('\nSavings');
   if (rtk) console.log(`  rtk:      ${n(rtk.tokensSaved)} tokens (${rtk.savingsPct}%) over ${n(rtk.commands)} commands`);
   else console.log(`  rtk:      no data (no rtk binary at ${s.stats.rtkPath})`);
   if (bili) console.log(`  bili:     ${n(bili.cached)} tokens saved via cache (${bili.cacheHitPct}% of ${n(bili.tokensIn)} in, ${n(bili.sessions)} sessions)`);
   if (headroomAll) {
-    console.log(`  headroom: ${n(headroomAll.tokensSaved)} tokens compressed (${headroomAll.savingsPct}% of ${n(headroomAll.tokensIn)} in)`);
-    console.log(`            tool schemas ${n(headroomAll.toolTokensSaved)} · cache reads ${n(headroomAll.cacheReadTokens)}`
-      + ` · $${headroomAll.savedUsd} saved · ${n(headroomAll.lifetimeRequests)} requests`);
-  } else console.log('  headroom: no data (proxy not answering /stats)');
+    console.log(`  headroom: ${n(headroomAll.tokensSaved)} tokens saved (${headroomAll.savingsPct}% of ${n(headroomAll.tokensIn)} in) over ${n(headroomAll.lifetimeRequests)} requests`);
+    console.log(`            of which tool schemas ${n(headroomAll.toolTokensSaved)} · cache reads ${n(headroomAll.cacheReadTokens)}`
+      + ` · $${headroomAll.savedUsdEffective ?? headroomAll.savedUsd} saved`
+      + (headroomAll.savedUsdEffective ? ` ($${headroomAll.savedUsd} at list prices)` : ''));
+    console.log(`            source: ${headroomLedger ? headroomLedger.source : 'proxy /stats (no ledger yet)'}`);
+  } else console.log('  headroom: no data (no ledger and no proxy answering /stats)');
   if (s.stats.totalSaved) {
     console.log(`  saved:    ${n(s.stats.totalSaved)} tokens saved (rtk + headroom ${n(s.stats.removedTokens)}, bili cache ${n(s.stats.cachedTokens)})`);
     console.log('            bili\'s share is served from the provider prompt cache, billed at about a tenth of full price');

@@ -182,6 +182,11 @@
     transition: width .5s cubic-bezier(.4,0,.2,1);
   }
   .bar .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px; }
+  /* A nested row is a breakdown of the bar above it, not another layer. */
+  .bar.nested { margin-top: -6px; }
+  .bar.nested .name, .bar.nested .val { font-size: 11.5px; font-weight: 500; color: var(--text-3); }
+  .bar.nested .track { height: 8px; }
+  .bar.nested .name { padding-left: 6px; }
   .bar:hover .track { box-shadow: inset 0 0 0 1px var(--border-strong); }
   .note { color: var(--text-3); font-size: 12px; line-height: 1.55; margin: 14px 0 0; }
   .tip {
@@ -302,18 +307,20 @@ const STR = {
     rtkSub: (s) => `${s.savingsPct}% · ${s.commands.toLocaleString('en-US')} commands`,
     biliTitle: 'bili · cache savings', biliNo: 'not responding',
     biliSub: (s) => `${s.cacheHitPct}% of ${fmt(s.tokensIn)} input · ${s.sessions} sessions`,
-    hrTitle: 'headroom · compression', hrNo: 'not responding',
+    hrTitle: 'headroom · saved', hrNo: 'no data yet',
     hrSub: (s) => `${s.savingsPct}% of ${fmt(s.tokensIn)} in · ${s.lifetimeRequests.toLocaleString('en-US')} requests`,
-    toolsTitle: 'headroom · tool schemas',
-    toolsSub: 'tool definitions stripped from requests',
-    usdTitle: 'headroom · USD saved', usdSub: 'compression + tool schemas + cache',
+    toolsTitle: 'of which tool schemas',
+    toolsBar: 'of which schemas',
+    toolsSub: 'deferred until the agent asks for them',
+    usdTitle: 'headroom · USD saved',
+    usdSub: (s) => (s.savedUsdEffective ? `cache-aware · ${usd(s.savedUsd)} at list prices` : 'compression + tool schemas'),
     totalTitle: 'all layers · tokens saved',
     totalSub: (s) => `rtk + headroom ${fmt(s.removedTokens)} · bili cache ${fmt(s.cachedTokens)}`,
     tipRtk: 'shell command output, shrunk before it enters the context',
     tipBili: 'the prefix hit the provider prompt cache, billed at a fraction of the normal input price',
-    tipHr: 'compression of tool results and schemas inside the request',
-    tipTools: 'tool definitions removed from requests',
-    barsNote: 'rtk and headroom save tokens by never sending them. bili saves them by keeping the prefix stable so the provider prompt cache keeps hitting — those are billed at roughly a tenth of the normal input price.',
+    tipHr: 'headroom\'s total: compressed tool results plus deferred tool schemas',
+    tipTools: 'the part of headroom\'s saving that comes from not sending tool definitions up front',
+    barsNote: 'rtk and headroom save tokens by never sending them; the nested row shows how much of headroom\'s total is deferred tool schemas. bili saves them by keeping the prefix stable so the provider prompt cache keeps hitting — those are billed at roughly a tenth of the normal input price. headroom figures come from its durable savings ledger, not from a per-process counter that resets on restart.',
   },
   ru: {
     subtitle: 'rtk → bili → headroom → провайдер',
@@ -330,18 +337,20 @@ const STR = {
     rtkSub: (s) => `${s.savingsPct}% · ${s.commands.toLocaleString('ru-RU')} команд`,
     biliTitle: 'bili · экономия кэша', biliNo: 'не отвечает',
     biliSub: (s) => `${s.cacheHitPct}% из ${fmt(s.tokensIn)} на входе · ${s.sessions} сессий`,
-    hrTitle: 'headroom · сжатие', hrNo: 'не отвечает',
+    hrTitle: 'headroom · экономия', hrNo: 'нет данных',
     hrSub: (s) => `${s.savingsPct}% из ${fmt(s.tokensIn)} на входе · ${s.lifetimeRequests.toLocaleString('ru-RU')} запросов`,
-    toolsTitle: 'headroom · схемы',
-    toolsSub: 'схемы инструментов вырезаны из запросов',
-    usdTitle: 'headroom · $ сэкономлено', usdSub: 'сжатие + схемы + кэш',
+    toolsTitle: 'из них схемы',
+    toolsBar: 'из них схемы',
+    toolsSub: 'схемы инструментов, отложенные до запроса',
+    usdTitle: 'headroom · $ сэкономлено',
+    usdSub: (s) => (s.savedUsdEffective ? `с учётом кэша · ${usd(s.savedUsd)} по прайсу` : 'сжатие + схемы'),
     totalTitle: 'все слои · токенов сэкономлено',
     totalSub: (s) => `rtk + headroom ${fmt(s.removedTokens)} · кэш bili ${fmt(s.cachedTokens)}`,
     tipRtk: 'вывод shell-команд, ужатый до попадания в контекст',
     tipBili: 'префикс попал в кэш провайдера, такие токены биллятся по ~10% обычной цены',
-    tipHr: 'сжатие tool results и схем внутри запроса',
-    tipTools: 'определения инструментов, вырезанные из запросов',
-    barsNote: 'rtk и headroom экономят токены тем, что вообще их не отправляют. bili экономит тем, что держит префикс стабильным и кэш провайдера продолжает попадать — такие токены биллятся примерно по 10% обычной цены.',
+    tipHr: 'вся экономия headroom: сжатие tool results плюс отложенные схемы инструментов',
+    tipTools: 'та часть экономии headroom, что получена за счёт отказа отправлять схемы инструментов сразу',
+    barsNote: 'rtk и headroom экономят токены тем, что вообще их не отправляют; вложенная строка показывает, сколько в экономии headroom приходится на отложенные схемы инструментов. bili экономит тем, что держит префикс стабильным и кэш провайдера продолжает попадать — такие токены биллятся примерно по 10% обычной цены. Цифры headroom берутся из его долговечного журнала экономии, а не из счётчика, который сбрасывается при перезапуске.',
   },
 };
 
@@ -388,16 +397,16 @@ function health(s) {
 }
 
 function tiles(s) {
-  const { rtk, bili, headroomAll, headroom, headroomDeepseek } = s.stats;
-  const hrUp = headroom || headroomDeepseek;
+  const { rtk, bili, headroomAll, headroom, headroomDeepseek, headroomLedger } = s.stats;
+  // The ledger is durable, so its numbers still stand while a proxy restarts;
+  // /stats is only the fallback for a host that has no ledger yet.
+  const hr = (headroomLedger || headroom || headroomDeepseek) ? headroomAll : null;
   const items = [
     ['--rtk', t('rtkTitle'), rtk ? fmt(rtk.tokensSaved) : '—', rtk ? t('rtkSub')(rtk) : t('rtkNo')],
     ['--bili', t('biliTitle'), bili ? fmt(bili.cached) : '—', bili ? t('biliSub')(bili) : t('biliNo')],
-    ['--headroom', t('hrTitle'), hrUp ? fmt(headroomAll.tokensSaved) : '—',
-      hrUp ? t('hrSub')(headroomAll) : t('hrNo')],
-    ['--headroom', t('toolsTitle'), hrUp ? fmt(headroomAll.toolTokensSaved) : '—',
-      hrUp ? t('toolsSub') : t('hrNo')],
-    [null, t('usdTitle'), hrUp ? usd(headroomAll.savedUsd) : '—', hrUp ? t('usdSub') : ''],
+    ['--headroom', t('hrTitle'), hr ? fmt(hr.tokensSaved) : '—', hr ? t('hrSub')(hr) : t('hrNo')],
+    ['--headroom', t('toolsTitle'), hr ? fmt(hr.toolTokensSaved) : '—', hr ? t('toolsSub') : t('hrNo')],
+    [null, t('usdTitle'), hr ? usd(hr.savedUsdEffective ?? hr.savedUsd) : '—', hr ? t('usdSub')(hr) : ''],
     [null, t('totalTitle'), fmt(s.stats.totalSaved ?? 0), t('totalSub')(s.stats), 'wide'],
   ];
   $('tiles').innerHTML = items.map(([c, k, v, sub, cls]) => `
@@ -431,18 +440,20 @@ function services(s) {
 
 function bars(s) {
   const { rtk, bili, headroomAll } = s.stats;
+  // headroom's ledger stores its two layers so that they SUM to its total:
+  // tool schemas are a breakdown, drawn as a nested row, never a fourth layer.
   const rows = [
-    ['rtk', '--rtk', rtk?.tokensSaved ?? 0, t('tipRtk')],
-    ['bili', '--bili', bili?.cached ?? 0, t('tipBili')],
-    ['headroom', '--headroom', headroomAll?.tokensSaved ?? 0, t('tipHr')],
-    ['tool schemas', '--headroom', headroomAll?.toolTokensSaved ?? 0, t('tipTools')],
+    ['rtk', '--rtk', rtk?.tokensSaved ?? 0, t('tipRtk'), 0],
+    ['bili', '--bili', bili?.cached ?? 0, t('tipBili'), 0],
+    ['headroom', '--headroom', headroomAll?.tokensSaved ?? 0, t('tipHr'), 0],
+    [t('toolsBar'), '--headroom', headroomAll?.toolTokensSaved ?? 0, t('tipTools'), 1],
   ];
   // Log scale: bili's cache reads are two orders of magnitude above the
   // compression layers, and on a linear scale every other bar disappears.
   const max = Math.max(1, ...rows.map((r) => r[2]));
   const pct = (v) => (v > 0 ? Math.max(1.5, (Math.log10(v + 1) / Math.log10(max + 1)) * 100) : 0);
-  $('bars').innerHTML = rows.map(([name, c, v, hint]) => `
-    <div class="bar" data-tip="<b>${name}</b>: ${v.toLocaleString(locale())} tokens<br><span class=muted>${hint}</span>">
+  $('bars').innerHTML = rows.map(([name, c, v, hint, nested]) => `
+    <div class="bar${nested ? ' nested' : ''}" data-tip="<b>${name}</b>: ${v.toLocaleString(locale())} tokens<br><span class=muted>${hint}</span>">
       <span class="name"><span class="sw" style="--accent:var(${c})"></span>${name}</span>
       <div class="track"><div class="fill" style="--c:var(${c});width:${pct(v)}%"></div></div>
       <span class="val">${fmt(v)}</span>

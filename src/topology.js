@@ -9,6 +9,9 @@
 // bili goes first so its folds are what headroom sees; headroom runs in
 // `cache` mode (delta-only), so it never busts the prefix bili keeps stable.
 
+import path from 'node:path';
+import { home } from './platform.js';
+
 export const PORTS = {
   bili: 18788,
   headroom: 8787,
@@ -36,6 +39,11 @@ export const SERVICES = {
     port: PORTS.headroomDeepseek,
     health: '/health',
     upstream: 'https://api.deepseek.com',
+    // Both proxies otherwise rewrite the same ~/.headroom/proxy_savings.json
+    // from their own memory — last writer wins, so each instance's session view
+    // clobbers the other's. The append-only events ledger stays shared (appends
+    // are safe), and that is what `headroom savings` and the dashboard read.
+    env: { HEADROOM_SAVINGS_PATH: path.join(home, '.headroom', 'proxy_savings.deepseek.json') },
   },
   dashboard: {
     label: 'agent-stack dashboard',

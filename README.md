@@ -95,11 +95,19 @@ job for the new one and silently leave the service down.
 <http://127.0.0.1:18800> — served by the `dev.agent-stack.dashboard` service.
 
 - Saved tokens per layer: rtk (shell output), bili (prefix served from the provider's
-  cache), headroom (compression + tool schemas), plus the combined total and the USD figure.
-  - rtk and headroom save tokens by never sending them.
+  cache), headroom (compression + deferred tool schemas), plus the combined total and the
+  USD figure.
+  - rtk and headroom save tokens by never sending them. headroom's tool-schema share is
+    shown as a nested row, because the ledger stores its two layers so that they *sum*
+    to the total rather than stacking on top of it.
   - bili saves them by keeping the prefix stable so the provider's prompt cache keeps
     hitting; those tokens are billed at roughly a tenth of the normal input price.
   The total adds both, and breaks them down underneath.
+- headroom's numbers come from its durable savings ledger
+  (`~/.headroom/savings_events.jsonl`, the file `headroom savings` aggregates), not from
+  the `/stats` counters: those live in `~/.headroom/proxy_savings.json`, are rewritten
+  wholesale by whichever proxy saves last, and freeze while requests keep flowing. Each
+  proxy gets its own `HEADROOM_SAVINGS_PATH`; the append-only ledger stays shared.
 - Agent chains with live hop health, service status and a one-click `e2e` probe that
   sends a bogus-key request through the whole chain (a provider-shaped `401` means the
   chain works and no tokens were spent).

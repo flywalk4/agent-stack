@@ -59,8 +59,83 @@ function rtkSummary() {
   }
 }
 
-// headroom's top-level counters are the live window and reset to zero on every
-// restart; the durable numbers live in persistent_savings.lifetime.
+// headroom's /stats block is a per-process view of a file both proxies rewrite
+// from their own memory, and its lifetime counters freeze while requests keep
+// flowing. The append-only ledger beside it is the durable one — `headroom
+// savings` aggregates it, it survives restarts and concurrent writers — so the
+// savings numbers come from there and /stats is only used for live state.
+const LEDGER_CANDIDATES = [
+  process.env.HEADROOM_SAVINGS_EVENTS_PATH,
+  path.join(home, '.headroom', 'savings_events.jsonl'),
+].filter(Boolean);
+
+export function headroomLedgerPath() {
+  return LEDGER_CANDIDATES.find((f) => {
+    try {
+      return fs.statSync(f).isFile();
+    } catch {
+      return false;
+    }
+  }) ?? null;
+}
+
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const round2 = (n) => Math.round(n * 100) / 100;
+
+function headroomLedger() {
+  const file = headroomLedgerPath();
+  if (!file) return null;
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+  const acc = {
+    calls: 0, tokensSaved: 0, tokensBefore: 0, toolTokensSaved: 0,
+    cacheReadTokens: 0, costUsd: 0, costEffectiveUsd: 0, lastAt: null, byClient: {},
+  };
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let e;
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!e || typeof e !== 'object') continue;
+    acc.calls += 1;
+    acc.tokensSaved += num(e.saved);
+    acc.tokensBefore += num(e.before);
+    // The ledger stores the two savings layers so that they SUM to `saved`:
+    // tool-schema deferral is already part of `saved`, never an extra.
+    acc.toolTokensSaved += num(e.saved_tool_schema);
+    acc.cacheReadTokens += num(e.cache?.cr);
+    acc.costUsd += num(e.cost_usd);
+    acc.costEffectiveUsd += num(e.cost_effective_usd);
+    if (e.ts && (!acc.lastAt || e.ts > acc.lastAt)) acc.lastAt = e.ts;
+    const client = typeof e.client === 'string' && e.client ? e.client : 'unknown';
+    acc.byClient[client] = (acc.byClient[client] ?? 0) + 1;
+  }
+  if (!acc.calls) return null;
+  return {
+    calls: acc.calls,
+    tokensSaved: acc.tokensSaved,
+    tokensBefore: acc.tokensBefore,
+    compressionTokens: Math.max(acc.tokensSaved - acc.toolTokensSaved, 0),
+    toolTokensSaved: Math.min(acc.toolTokensSaved, acc.tokensSaved),
+    cacheReadTokens: acc.cacheReadTokens,
+    costUsd: round2(acc.costUsd),
+    costEffectiveUsd: round2(acc.costEffectiveUsd),
+    savingsPct: acc.tokensBefore ? round1((acc.tokensSaved / acc.tokensBefore) * 100) : 0,
+    lastAt: acc.lastAt,
+    byClient: acc.byClient,
+    source: file,
+  };
+}
+
+// Fallback for a host with no ledger yet: /stats lifetime counters, where
+// tokens_saved is the bare message figure and tool_tokens_saved is separate.
 function headroomSummary(s) {
   if (!s) return null;
   const life = s.persistent_savings?.lifetime ?? {};
@@ -147,24 +222,44 @@ export async function collect() {
   });
   const headroom = headroomSummary(hr);
   const headroomDeepseek = headroomSummary(hrDs);
+  const ledger = headroomLedger();
+  const liveAll = mergeHeadroom(headroom, headroomDeepseek);
+  // The ledger counts both proxies and every restart, so when it exists it
+  // replaces the /stats figures outright instead of merging with them.
+  const headroomAll = ledger ? {
+    ...liveAll,
+    tokensIn: ledger.tokensBefore,
+    tokensSaved: ledger.tokensSaved,
+    compressionTokens: ledger.compressionTokens,
+    toolTokensSaved: ledger.toolTokensSaved,
+    cacheReadTokens: ledger.cacheReadTokens,
+    lifetimeRequests: ledger.calls,
+    savedUsd: ledger.costUsd,
+    savedUsdEffective: ledger.costEffectiveUsd,
+    savingsPct: ledger.savingsPct,
+    lastAt: ledger.lastAt,
+    store: ledger.source,
+    instances: liveAll?.instances ?? 1,
+  } : liveAll;
   const stats = {
     rtk: rtkSummary(),
     bili: biliSummary(bili),
     headroom,
     headroomDeepseek,
-    headroomAll: mergeHeadroom(headroom, headroomDeepseek),
+    headroomAll,
+    headroomLedger: ledger,
     rtkPath: rtkPath(),
   };
   // Two different kinds of saving, kept apart on purpose:
   //  - removedTokens: never left this machine — rtk shrinks shell output and
   //    headroom compresses requests and strips tool schemas before sending.
+  //    headroom's tokensSaved already contains its tool-schema half (the ledger
+  //    guarantees the two layers sum to `saved`), so it must not be added twice.
   //  - cachedTokens (bili): the request did go out, but the prefix hit the
   //    provider's prompt cache, which is billed at a fraction of the normal
   //    input price (10% for Anthropic and DeepSeek). Real money, but not real
   //    tokens, so it must never be presented as "tokens not sent".
-  const removedTokens = (stats.rtk?.tokensSaved ?? 0)
-    + (stats.headroomAll?.tokensSaved ?? 0)
-    + (stats.headroomAll?.toolTokensSaved ?? 0);
+  const removedTokens = (stats.rtk?.tokensSaved ?? 0) + (stats.headroomAll?.tokensSaved ?? 0);
   const cachedTokens = stats.bili?.cached ?? 0;
   stats.removedTokens = removedTokens;
   stats.cachedTokens = cachedTokens;

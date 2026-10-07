@@ -35,7 +35,11 @@ const JOB_PATH = [
   '/usr/bin', '/bin', '/usr/sbin', '/sbin',
 ].join(':');
 
-function plist(label, argv, log) {
+function plist(label, argv, log, env = {}) {
+  const vars = { PATH: JOB_PATH, ...env };
+  const envXml = Object.entries(vars)
+    .map(([k, v]) => `    <key>${xml(k)}</key><string>${xml(String(v))}</string>`)
+    .join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -44,7 +48,7 @@ function plist(label, argv, log) {
 ${argv.map((a) => `    <string>${xml(a)}</string>`).join('\n')}
   </array>
   <key>EnvironmentVariables</key><dict>
-    <key>PATH</key><string>${xml(JOB_PATH)}</string>
+${envXml}
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -72,7 +76,7 @@ function macInstall(name, argv) {
   const file = plistPath(label);
   const domain = `gui/${uid()}`;
   fs.mkdirSync(LAUNCH_AGENTS, { recursive: true });
-  fs.writeFileSync(file, plist(label, argv, path.join(LOG_DIR, `${name}.log`)));
+  fs.writeFileSync(file, plist(label, argv, path.join(LOG_DIR, `${name}.log`), SERVICES[name]?.env));
   let last = null;
   for (let attempt = 0; attempt < 5; attempt++) {
     run('launchctl', ['bootout', `${domain}/${label}`]);
@@ -119,8 +123,11 @@ const cmdq = (s) => (/[\s"&|<>^]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
 function winInstall(name, argv) {
   const task = `agent-stack-${name}`;
   const log = path.join(LOG_DIR, `${name}.log`);
+  // Per-service environment (see SERVICES[*].env in topology.js).
+  const envCmd = Object.entries(SERVICES[name]?.env ?? {})
+    .map(([k, v]) => `set "${k}=${v}" && `).join('');
   // conhost --headless keeps the console window hidden (Win10 1809+).
-  const inner = `${argv.map(cmdq).join(' ')} >> ${cmdq(log)} 2>&1`;
+  const inner = `${envCmd}${argv.map(cmdq).join(' ')} >> ${cmdq(log)} 2>&1`;
   const script = `
 $ErrorActionPreference = 'Stop'
 $a = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument ${psq(`--headless cmd.exe /d /c "${inner}"`)}
