@@ -78,18 +78,22 @@ Why it is wired this way:
 - **OpenCode is wired with a directory, not a file.** OpenCode V2 silently drops a configured
   `.js` path (`configured plugin path must be a directory`) and resolves a plugin directory
   through its own `package.json`. agent-stack therefore generates
-  `~/.config/opencode/plugins/agent-stack-headroom/` — a one-line re-export of the transport
-  plugin headroom ships inside its uv tool — and points the config at that directory, which the
-  V1 line loads just as well. Legacy `…/plugins/<name>/<file>.js` entries are rewritten to their
+  `~/.config/opencode/plugins/agent-stack-headroom/` — a wrapper around the transport plugin
+  headroom ships inside its uv tool — and points the config at that directory, which the V1 line
+  loads just as well. Legacy `…/plugins/<name>/<file>.js` entries are rewritten to their
   parent directory, and the entry is written back into whichever key the config already uses
-  (`plugins` on V2-line configs, `plugin` otherwise). Headroom's plugin is still
-  V1-only upstream, so a build that runs only V2 plugins (`Plugin.define({ id, setup })`) will
-  not execute it until upstream ports it. caveman's plugin is V1-only upstream too, so
-  agent-stack patches the installed copy to default-export both APIs at once —
-  `{ id, server, setup }`: V1 (1.18.29+) calls `server()`, V2 calls `setup()`, and both share the
-  same hook object, so the behaviour is identical on either line. `agent-stack doctor` reports
-  that patch (`caveman: plugin runs on both plugin APIs`); a caveman self-update overwrites
-  `plugin.js`, and the next `agent-stack install` re-applies it.
+  (`plugins` on V2-line configs, `plugin` otherwise).
+- **Both plugins are dual-API (V1 `server()` + V2 `setup()`).** Upstream ships headroom's
+  transport and caveman's plugin for the V1 hook API only, so agent-stack adapts both: the
+  generated headroom wrapper default-exports `{ id, server, setup }`, and caveman's installed
+  `plugin.js` is patched to the same shape. On the V1 line the plugin object is loaded through
+  more than one lane (1.18.29+ calls `server()`, its native lane calls `setup()`), so the wrapper
+  installs the fetch transport exactly once per process and releases it once, and every V2
+  registration is guarded by a `typeof ctx.x?.y === 'function'` check so a build without that
+  seam stays inert instead of crashing. `agent-stack doctor` reports both
+  (`caveman: plugin runs on both plugin APIs`, `headroom: transport wrapper runs on both plugin
+  APIs`); a caveman self-update overwrites `plugin.js`, and the next `agent-stack install`
+  re-applies the patch.
 - **Codex without WebSocket.** On the WS transport bili and headroom both rewrite
   `previous_response_id`, and Codex fails with `previous_response_not_found`.
 - **A separate headroom for DeepSeek** (`--openai-api-url https://api.deepseek.com`
