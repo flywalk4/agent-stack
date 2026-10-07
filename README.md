@@ -75,6 +75,16 @@ Why it is wired this way:
 - **rtk and caveman live inside the agent** (hooks, rules, skills), they are not network hops.
   caveman's own launcher/proxy (`caveman claude`) is deliberately not installed — it would add
   a fourth network hop.
+- **OpenCode is wired with a directory, not a file.** OpenCode V2 silently drops a configured
+  `.js` path (`configured plugin path must be a directory`) and resolves a plugin directory
+  through its own `package.json`. agent-stack therefore generates
+  `~/.config/opencode/plugins/agent-stack-headroom/` — a one-line re-export of the transport
+  plugin headroom ships inside its uv tool — and points the config at that directory, which the
+  V1 line loads just as well. Legacy `…/plugins/<name>/<file>.js` entries are rewritten to their
+  parent directory, and the entry is written back into whichever key the config already uses
+  (`plugins` on V2-line configs, `plugin` otherwise). Caveat: headroom's and caveman's plugins
+  still implement the V1 plugin API, so a build that runs only V2 plugins
+  (`Plugin.define({ id, setup })`) will not execute them until upstream ports them.
 - **Codex without WebSocket.** On the WS transport bili and headroom both rewrite
   `previous_response_id`, and Codex fails with `previous_response_not_found`.
 - **A separate headroom for DeepSeek** (`--openai-api-url https://api.deepseek.com`
