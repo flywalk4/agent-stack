@@ -8,13 +8,25 @@ import {
 } from './services.js';
 import { backedUpFiles, restore } from './backup.js';
 
+// @clack/prompts reads stdin: without a TTY it never resolves and the installer
+// looks hung. Fail loudly instead, pointing at the non-interactive flag.
+const requireTTY = (hint) => {
+  if (process.stdin.isTTY) return;
+  console.error(`No TTY — interactive prompts cannot work here.\nRun: ${hint}`);
+  process.exit(1);
+};
+
 const cancelled = (v) => {
   if (p.isCancel(v)) {
-    p.cancel('Отменено.');
+    p.cancel('Cancelled.');
     process.exit(1);
   }
   return v;
 };
+
+// @clack/prompts does not say how to operate a multiselect, so every one of
+// them spells the keys out in its message.
+const MULTI_HINT = '(space to select · enter to continue)';
 
 async function step(label, fn) {
   const s = p.spinner();
@@ -29,30 +41,45 @@ async function step(label, fn) {
   }
 }
 
+async function chooseMode() {
+  return cancelled(await p.select({
+    message: 'What do you want to do?',
+    options: [
+      { value: 'install', label: 'Install / update', hint: 'wire the agents, (re)start the proxy services' },
+      { value: 'uninstall', label: 'Uninstall', hint: 'remove the services, restore configs from backups' },
+    ],
+    initialValue: 'install',
+  }));
+}
+
 export async function install({ yes = false } = {}) {
+  if (!yes) requireTTY('agent-stack install --yes');
   p.intro('agent-stack · rtk + bili + headroom + caveman');
-  if (!isMac && !isWin) p.log.warn(`${process.platform}: сервисы не поддерживаются, только конфиги.`);
+  if (!isMac && !isWin) p.log.warn(`${process.platform}: only config files are supported, not services.`);
+
+  // First run installs, later runs often want the other direction — offer both.
+  if (!yes && await chooseMode() === 'uninstall') return uninstall();
 
   const detected = TARGETS.filter((t) => t.detect());
   const agents = yes ? detected.map((t) => t.id) : cancelled(await p.multiselect({
-    message: 'Каких агентов подключить?',
+    message: `Which agents should be wired up? ${MULTI_HINT}`,
     options: TARGETS.map((t) => ({
       value: t.id,
       label: t.label,
-      hint: [t.detect() ? 'найден' : 'не найден', CHAINS[t.id].hops.join(' → ')].join(' · '),
+      hint: [t.detect() ? 'found' : 'not found', CHAINS[t.id].hops.join(' → ')].join(' · '),
     })),
     initialValues: detected.map((t) => t.id),
     required: true,
   }));
 
   const layers = yes ? ['rtk', 'bili', 'headroom', 'caveman', 'dashboard'] : cancelled(await p.multiselect({
-    message: 'Какие слои ставить?',
+    message: `Which layers should be installed? ${MULTI_HINT}`,
     options: [
-      { value: 'rtk', label: 'rtk', hint: 'сжатие вывода команд (хуки в агенте)' },
-      { value: 'bili', label: 'bili', hint: 'свёртка контекста сессии' },
-      { value: 'headroom', label: 'headroom', hint: 'сжатие запросов (tool results/schemas)' },
-      { value: 'caveman', label: 'caveman', hint: 'краткие ответы, всегда включён по умолчанию' },
-      { value: 'dashboard', label: 'dashboard', hint: `общий дашборд :${SERVICES.dashboard.port}` },
+      { value: 'rtk', label: 'rtk', hint: 'shrinks shell command output (hooks inside the agent)' },
+      { value: 'bili', label: 'bili', hint: 'context folding per session' },
+      { value: 'headroom', label: 'headroom', hint: 'request compression (tool results / schemas)' },
+      { value: 'caveman', label: 'caveman', hint: 'terse answers, always on by default' },
+      { value: 'dashboard', label: 'dashboard', hint: `shared dashboard :${SERVICES.dashboard.port}` },
     ],
     initialValues: ['rtk', 'bili', 'headroom', 'caveman', 'dashboard'],
     required: true,
@@ -61,30 +88,30 @@ export async function install({ yes = false } = {}) {
   // bili and headroom are both required for the network chain — the base URLs
   // written into agent configs point through both.
   if (agents.length && (layers.includes('bili') !== layers.includes('headroom'))) {
-    p.log.warn('Цепочка требует и bili, и headroom — добавляю оба.');
+    p.log.warn('The chain needs both bili and headroom — adding the missing one.');
     for (const l of ['bili', 'headroom']) if (!layers.includes(l)) layers.push(l);
   }
 
   const foreign = findForeignAgents();
   if (foreign.length) {
-    p.log.warn(`Найдены свои launchd-агенты bili/headroom (займут порты):\n${foreign.join('\n')}`);
-    const ok = yes || cancelled(await p.confirm({ message: 'Отключить их (переименую в .disabled-by-agent-stack)?' }));
+    p.log.warn(`Found your own bili/headroom launchd agents (they would take the ports):\n${foreign.join('\n')}`);
+    const ok = yes || cancelled(await p.confirm({ message: 'Disable them (rename to .disabled-by-agent-stack)?' }));
     if (ok) foreign.forEach(retireForeignAgent);
   }
 
   if (!yes) {
     p.note([
-      `Агенты: ${agents.join(', ')}`,
-      `Слои: ${layers.join(', ')}`,
-      'Все изменённые конфиги бэкапятся в ~/.agent-stack/backups (uninstall вернёт).',
-    ].join('\n'), 'План');
-    cancelled(await p.confirm({ message: 'Ставим?' })) || process.exit(0);
+      `Agents: ${agents.join(', ')}`,
+      `Layers: ${layers.join(', ')}`,
+      'Every changed config is backed up to ~/.agent-stack/backups (uninstall puts it back).',
+    ].join('\n'), 'Plan');
+    cancelled(await p.confirm({ message: 'Install?' })) || process.exit(0);
   }
 
   // 1. tools
   for (const id of ['rtk', 'bili', 'headroom'].filter((l) => layers.includes(l))) {
-    if (isInstalled(id)) p.log.info(`${TOOLS[id].label}: ${TOOLS[id].version() ?? 'есть'}`);
-    else await step(`Ставлю ${TOOLS[id].label}`, TOOLS[id].install);
+    if (isInstalled(id)) p.log.info(`${TOOLS[id].label}: ${TOOLS[id].version() ?? 'present'}`);
+    else await step(`Installing ${TOOLS[id].label}`, TOOLS[id].install);
   }
 
   // 2. background services
@@ -98,35 +125,36 @@ export async function install({ yes = false } = {}) {
   ].filter(Boolean);
   for (const name of wanted) {
     if (!cmds[name]) {
-      p.log.error(`${SERVICES[name].label}: не нашёл исполняемый файл, пропускаю`);
+      p.log.error(`${SERVICES[name].label}: executable not found, skipping`);
       continue;
     }
-    await step(`Сервис ${SERVICES[name].label} :${SERVICES[name].port}`, async () => {
+    await step(`Service ${SERVICES[name].label} :${SERVICES[name].port}`, async () => {
       installService(name, cmds[name]);
-      if (!(await waitHealthy(name))) throw new Error('не поднялся за 60с — смотри логи');
+      if (!(await waitHealthy(name))) throw new Error('did not come up within 60s — check the logs');
     });
   }
 
   // 3. wire agents
   for (const t of TARGETS.filter((x) => agents.includes(x.id))) {
-    if (layers.includes('headroom')) await step(`${t.label}: цепочка ${CHAINS[t.id].hops.join(' → ')}`, () => t.apply());
+    if (layers.includes('headroom')) await step(`${t.label}: chain ${CHAINS[t.id].hops.join(' → ')}`, () => t.apply());
     for (const addon of ['rtk', 'caveman']) {
       const fn = layers.includes(addon) && ADDONS[addon][t.id];
       if (fn) await step(`${t.label}: ${addon}`, fn);
     }
   }
 
-  p.outro(`Готово. Проверка: agent-stack doctor · Дашборд: http://127.0.0.1:${SERVICES.dashboard.port}`);
+  p.outro(`Done. Verify: agent-stack doctor · Dashboard: http://127.0.0.1:${SERVICES.dashboard.port}`);
 }
 
 export async function uninstall() {
+  requireTTY('agent-stack uninstall');
   p.intro('agent-stack uninstall');
-  const ok = cancelled(await p.confirm({ message: 'Удалить сервисы и вернуть конфиги из бэкапов?' }));
+  const ok = cancelled(await p.confirm({ message: 'Remove the services and restore configs from the backups?' }));
   if (!ok) return;
-  for (const name of Object.keys(SERVICES)) await step(`Удаляю сервис ${SERVICES[name].label}`, () => removeService(name));
+  for (const name of Object.keys(SERVICES)) await step(`Removing service ${SERVICES[name].label}`, () => removeService(name));
   for (const t of TARGETS) {
-    if (t.id === 'opencode' || t.id === 'dsh') await step(`${t.label}: откат`, () => t.revert());
+    if (t.id === 'opencode' || t.id === 'dsh') await step(`${t.label}: reverting`, () => t.revert());
   }
-  for (const f of backedUpFiles()) await step(`Восстанавливаю ${f}`, () => restore(f));
-  p.outro('Откат завершён. Инструменты (rtk/bili/headroom) не удалял.');
+  for (const f of backedUpFiles()) await step(`Restoring ${f}`, () => restore(f));
+  p.outro('Rollback complete. The tools (rtk/bili/headroom) were left installed.');
 }

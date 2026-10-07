@@ -10,17 +10,17 @@ function Refresh-Path {
 }
 
 if (-not (Need node)) {
-  Write-Host '-> ставлю Node.js LTS'
+  Write-Host '-> installing Node.js LTS'
   winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements --silent
   Refresh-Path
 }
 if (-not (Need uv)) {
-  Write-Host '-> ставлю uv'
+  Write-Host '-> installing uv'
   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
   Refresh-Path
 }
 if (-not (Need git)) {
-  Write-Host '-> ставлю git'
+  Write-Host '-> installing git'
   winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements --silent
   Refresh-Path
 }

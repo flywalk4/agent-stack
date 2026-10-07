@@ -24,7 +24,7 @@ const PROBES = {
 
 export async function probeChain(id) {
   const pr = PROBES[id];
-  if (!pr) return { ok: null, detail: 'нет сетевого пробника (in-process плагины)' };
+  if (!pr) return { ok: null, detail: 'no network probe (in-process plugin)' };
   try {
     const r = await fetch(pr.url, {
       method: 'POST',
@@ -49,23 +49,30 @@ export async function doctor({ json = false } = {}) {
   await Promise.all(s.agents.map(async (a) => { probes[a.id] = await probeChain(a.id); }));
   if (json) return console.log(JSON.stringify({ ...s, probes }, null, 2));
 
-  console.log('\nСервисы');
+  console.log('\nServices');
   for (const [id, v] of Object.entries(s.services)) console.log(`  ${mark(v.up)} ${v.label.padEnd(32)} :${v.port}  (${id})`);
-  console.log('\nАгенты');
+  console.log('\nAgents');
   for (const a of s.agents) {
     if (!a.installed) {
-      console.log(`  · ${a.label} — не найден`);
+      console.log(`  · ${a.label} — not found`);
       continue;
     }
     console.log(`  ${mark(a.wired)} ${a.label}: ${a.hops.join(' → ')}`);
-    console.log(`      конфиг: ${a.current ?? '—'}`);
+    console.log(`      config: ${a.current ?? '—'}`);
     console.log(`      e2e:    ${mark(probes[a.id].ok)} ${probes[a.id].detail}`);
   }
-  const { rtk, bili, headroom } = s.stats;
-  console.log('\nЭкономия');
-  if (rtk) console.log(`  rtk:      ${rtk.tokensSaved.toLocaleString()} ток. (${rtk.savingsPct}%) за ${rtk.commands} команд`);
-  if (bili) console.log(`  bili:     ${bili.sessions} сессий, cache hit ${bili.cacheHitPct}%`);
-  if (headroom) console.log(`  headroom: ${headroom.tokensSaved.toLocaleString()} ток. (${headroom.savingsPct}%) за ${headroom.requests} запросов`);
+  const { rtk, bili, headroomAll } = s.stats;
+  const n = (v) => v.toLocaleString('en-US');
+  console.log('\nSavings');
+  if (rtk) console.log(`  rtk:      ${n(rtk.tokensSaved)} tokens (${rtk.savingsPct}%) over ${n(rtk.commands)} commands`);
+  else console.log(`  rtk:      no data (no rtk binary at ${s.stats.rtkPath})`);
+  if (bili) console.log(`  bili:     ${n(bili.cached)} tokens served from cache (${bili.cacheHitPct}% hit, ${n(bili.sessions)} sessions)`);
+  if (headroomAll) {
+    console.log(`  headroom: ${n(headroomAll.tokensSaved)} tokens compressed (${headroomAll.savingsPct}% of ${n(headroomAll.tokensIn)} in)`);
+    console.log(`            tool schemas ${n(headroomAll.toolTokensSaved)} · cache reads ${n(headroomAll.cacheReadTokens)}`
+      + ` · $${headroomAll.savedUsd} saved · ${n(headroomAll.lifetimeRequests)} requests`);
+  } else console.log('  headroom: no data (proxy not answering /stats)');
+  if (s.stats.totalSaved) console.log(`  total:    ${n(s.stats.totalSaved)} tokens kept off the provider (rtk + bili + headroom)`);
   const bad = Object.values(s.services).some((v) => !v.up) || s.agents.some((a) => a.installed && probes[a.id].ok === false);
   process.exitCode = bad ? 1 : 0;
 }

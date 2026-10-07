@@ -27,6 +27,14 @@ export function serviceCommands(rt) {
 
 const xml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// launchd hands jobs a bare /usr/bin:/bin PATH, so anything installed by brew,
+// cargo or uv (rtk above all) stays invisible unless we spell it out here.
+const JOB_PATH = [
+  '/opt/homebrew/bin', '/usr/local/bin',
+  path.join(home, '.local', 'bin'), path.join(home, '.cargo', 'bin'),
+  '/usr/bin', '/bin', '/usr/sbin', '/sbin',
+].join(':');
+
 function plist(label, argv, log) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -35,6 +43,9 @@ function plist(label, argv, log) {
   <key>ProgramArguments</key><array>
 ${argv.map((a) => `    <string>${xml(a)}</string>`).join('\n')}
   </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>${xml(JOB_PATH)}</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>${xml(log)}</string>
@@ -46,14 +57,37 @@ ${argv.map((a) => `    <string>${xml(a)}</string>`).join('\n')}
 const uid = () => out('id', ['-u']);
 const plistPath = (label) => path.join(LAUNCH_AGENTS, `${label}.plist`);
 
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const isLoaded = (domain, label) => run('launchctl', ['print', `${domain}/${label}`]).status === 0;
+
+// launchd tears a booted-out job down asynchronously, and the old job stays
+// visible to `launchctl print` while it happens. Bootstrapping during that
+// window fails with "Bootstrap failed: 5: Input/output error" — and because the
+// stale job is still loaded, trusting `print` here would report success while
+// launchd goes on to remove the job for good, leaving the service not running at
+// all. So: wait until the label is really gone, bootstrap, then confirm the job
+// is still loaded after a moment before believing it worked.
 function macInstall(name, argv) {
   const label = LABEL_PREFIX + name;
   const file = plistPath(label);
+  const domain = `gui/${uid()}`;
   fs.mkdirSync(LAUNCH_AGENTS, { recursive: true });
-  run('launchctl', ['bootout', `gui/${uid()}/${label}`]);
   fs.writeFileSync(file, plist(label, argv, path.join(LOG_DIR, `${name}.log`)));
-  const r = run('launchctl', ['bootstrap', `gui/${uid()}`, file]);
-  if (r.status !== 0) throw new Error(`launchctl bootstrap ${label}: ${r.stderr.trim()}`);
+  let last = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    run('launchctl', ['bootout', `${domain}/${label}`]);
+    for (let i = 0; i < 50 && isLoaded(domain, label); i++) sleepSync(100);
+    last = run('launchctl', ['bootstrap', domain, file]);
+    if (last.status === 0) return;
+    // EIO after a clean teardown: give the load a moment, then re-check, so a
+    // job that launchd is about to drop is not mistaken for a running one.
+    if (isLoaded(domain, label)) {
+      sleepSync(700);
+      if (isLoaded(domain, label)) return;
+    }
+    sleepSync(500);
+  }
+  throw new Error(`launchctl bootstrap ${label}: ${last.stderr.trim()}`);
 }
 
 function macRemove(name) {

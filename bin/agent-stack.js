@@ -37,8 +37,9 @@ switch (cmd) {
   default:
     console.log(`agent-stack <command>
 
-  install [--yes]   интерактивная установка (по умолчанию)
-  doctor [--json]   проверка сервисов, конфигов и e2e-цепочек
-  dashboard         открыть общий дашборд
-  uninstall         убрать сервисы, вернуть конфиги из бэкапов`);
+  install [--yes]   interactive setup: asks install or uninstall (--yes = everything
+                    detected, no questions); running with no command does the same
+  doctor [--json]   check services, configs and end-to-end chains
+  dashboard         open the shared dashboard
+  uninstall         remove the services, restore configs from backups`);
 }

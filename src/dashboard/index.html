@@ -1,107 +1,279 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>agent-stack</title>
 <style>
   :root {
-    --surface-0: #f4f4f2; --surface-1: #fcfcfb; --border: #e3e2dd;
-    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
-    --rtk: #2a78d6; --bili: #eb6834; --headroom: #1baf7a; --upstream: #7a7974;
-    --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+    --bg: #f2f2ef;
+    --glow-1: rgba(42,120,214,.10);
+    --glow-2: rgba(27,175,122,.10);
+    --surface: #fdfdfc;
+    --surface-2: #f7f7f4;
+    --border: #e4e3dd;
+    --border-strong: #d3d2ca;
+    --text: #101010;
+    --text-2: #56554f;
+    --text-3: #8a8981;
+    --rtk: #2a78d6;
+    --bili: #eb6834;
+    --headroom: #12a06c;
+    --upstream: #8a8981;
+    --good: #0f9d58;
+    --warn: #e0a008;
+    --bad: #d4392f;
+    --shadow-1: 0 1px 2px rgba(16,16,16,.05);
+    --shadow-2: 0 18px 40px -28px rgba(16,16,16,.45);
+    --radius: 16px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --surface-0: #111110; --surface-1: #1a1a19; --border: #2e2e2c;
-      --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
-      --rtk: #3987e5; --bili: #d95926; --headroom: #199e70; --upstream: #8f8e86;
+      --bg: #0c0c0b;
+      --glow-1: rgba(57,135,229,.14);
+      --glow-2: rgba(25,158,112,.12);
+      --surface: #161615;
+      --surface-2: #1c1c1b;
+      --border: #2a2a28;
+      --border-strong: #3a3a37;
+      --text: #f5f5f3;
+      --text-2: #b9b8ae;
+      --text-3: #83827b;
+      --rtk: #4f95ea;
+      --bili: #dd6233;
+      --headroom: #22b47c;
+      --upstream: #83827b;
+      --good: #35c07a;
+      --warn: #f0b429;
+      --bad: #f2685e;
+      --shadow-1: 0 1px 2px rgba(0,0,0,.5);
+      --shadow-2: 0 20px 44px -30px rgba(0,0,0,.9);
     }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
-         background: var(--surface-0); color: var(--text-primary); }
-  main { max-width: 1180px; margin: 0 auto; padding: 24px; display: grid; gap: 16px; }
-  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-  h1 { font-size: 20px; margin: 0; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); margin: 0 0 12px; }
-  .muted { color: var(--text-muted); }
-  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
-  .tile .k { color: var(--text-secondary); font-size: 13px; display: flex; gap: 8px; align-items: center; }
-  .tile .v { font-size: 30px; font-weight: 650; letter-spacing: -.01em; margin-top: 4px; font-variant-numeric: tabular-nums; }
-  .tile .s { color: var(--text-muted); font-size: 12px; }
-  .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
-  .grid2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
-  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, "Helvetica Neue", sans-serif;
+    background:
+      radial-gradient(900px 480px at 12% -8%, var(--glow-1), transparent 65%),
+      radial-gradient(760px 420px at 92% 4%, var(--glow-2), transparent 62%),
+      var(--bg);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  main { max-width: 1200px; margin: 0 auto; padding: 32px 24px 56px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
 
-  .chain { display: grid; grid-template-columns: 210px 1fr auto; gap: 12px; align-items: center;
-           padding: 10px 0; border-top: 1px solid var(--border); }
-  .chain:first-of-type { border-top: 0; }
-  .hops { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-  .hop { border: 1.5px solid var(--c, var(--upstream)); border-radius: 999px; padding: 2px 10px; font-size: 12px;
-         color: var(--text-primary); display: inline-flex; gap: 6px; align-items: center; }
-  .hop::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--upstream)); }
-  .hop.down { border-style: dashed; opacity: .7; }
-  .arrow { color: var(--text-muted); font-size: 12px; }
-  .st { font-size: 12px; display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
-  .st.good { color: var(--good); } .st.bad { color: var(--critical); } .st.na { color: var(--text-muted); }
-  .st b { color: var(--text-primary); font-weight: 500; }
-  button { font: inherit; font-size: 12px; border: 1px solid var(--border); background: var(--surface-0);
-           color: var(--text-primary); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
-  button:hover { border-color: var(--text-muted); }
-  .probe { grid-column: 2 / 4; font-size: 12px; color: var(--text-secondary); font-family: ui-monospace, monospace; }
+  /* ---------- header ---------- */
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 38px; height: 38px; border-radius: 11px; flex: none;
+    background: linear-gradient(145deg, var(--rtk), var(--headroom));
+    box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255,255,255,.35);
+    display: grid; place-items: center;
+    color: #fff; font-weight: 750; font-size: 15px; letter-spacing: .02em;
+  }
+  h1 { font-size: 19px; margin: 0; letter-spacing: -.015em; font-weight: 700; }
+  .sub { color: var(--text-3); font-size: 12.5px; margin-top: 1px; }
+  .hdr-right { display: flex; align-items: center; gap: 10px; }
 
-  .svc { display: flex; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--border); }
-  .svc:first-of-type { border-top: 0; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+    font-size: 12.5px; font-weight: 550; padding: 5px 11px; border-radius: 999px;
+    border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-2);
+    box-shadow: var(--shadow-1);
+  }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+  .pill.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--border)); }
+  .pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--border)); }
+  .pill.bad  { color: var(--bad);  border-color: color-mix(in srgb, var(--bad) 40%, var(--border)); }
 
-  .bars { display: grid; gap: 10px; }
-  .bar { display: grid; grid-template-columns: 90px 1fr 120px; gap: 10px; align-items: center; position: relative; }
-  .track { height: 14px; }
-  .fill { height: 100%; border-radius: 0 4px 4px 0; background: var(--c); min-width: 2px; }
-  .bar .val { text-align: right; font-variant-numeric: tabular-nums; }
-  .tip { position: fixed; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
-         border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); display: none; }
+  /* ---------- cards ---------- */
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px; box-shadow: var(--shadow-1), var(--shadow-2);
+  }
+  h2 {
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--text-3);
+    margin: 0 0 14px; font-weight: 650; display: flex; align-items: center; gap: 8px;
+  }
+  h2::before { content: ""; width: 3px; height: 12px; border-radius: 2px; background: var(--border-strong); }
+  .muted { color: var(--text-3); }
 
+  /* ---------- tiles ---------- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(212px, 1fr)); gap: 14px; }
+  .tile { position: relative; overflow: hidden; transition: transform .18s ease, border-color .18s ease; }
+  .tile:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+  .tile::after {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent, var(--border-strong)), transparent 85%);
+    opacity: .9;
+  }
+  .tile .k { color: var(--text-2); font-size: 12.5px; display: flex; gap: 8px; align-items: center; font-weight: 550; }
+  .tile .v {
+    font-size: 31px; font-weight: 700; letter-spacing: -.025em; margin: 8px 0 3px;
+    font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
+  }
+  .tile .s { color: var(--text-3); font-size: 12px; }
+  /* The all-layers total finishes the row on its own instead of orphaning a
+     tile on a second line, whatever the window width works out to. */
+  .tile.wide {
+    grid-column: 1 / -1; display: grid; grid-template-columns: auto 1fr; align-items: baseline;
+    column-gap: 18px; row-gap: 4px;
+    background-image: linear-gradient(90deg, color-mix(in srgb, var(--rtk) 7%, transparent), transparent 60%);
+  }
+  .tile.wide .k { grid-area: 1 / 1; }
+  .tile.wide .v { grid-area: 1 / 2; justify-self: end; margin: 0; font-size: 34px; }
+  .tile.wide .s { grid-area: 2 / 1 / 3 / 3; }
+  .sw { width: 9px; height: 9px; border-radius: 3px; display: inline-block; flex: none; background: var(--accent); }
+
+  /* ---------- layout ---------- */
+  .grid2 { display: grid; grid-template-columns: 1.45fr 1fr; gap: 18px; align-items: start; }
+  @media (max-width: 940px) { .grid2 { grid-template-columns: 1fr; } }
+
+  /* ---------- chains ---------- */
+  .chain {
+    display: grid; grid-template-columns: 176px 1fr auto; gap: 12px; align-items: center;
+    padding: 11px 0; border-top: 1px dashed var(--border);
+  }
+  .chain:first-of-type { border-top: 0; padding-top: 2px; }
+  .agent { font-weight: 600; font-size: 13.5px; }
+  .hops { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+  .hop {
+    border: 1px solid color-mix(in srgb, var(--c) 45%, var(--border));
+    background: color-mix(in srgb, var(--c) 9%, transparent);
+    border-radius: 999px; padding: 3px 10px; font-size: 11.5px; font-weight: 550;
+    color: var(--text); display: inline-flex; gap: 6px; align-items: center;
+  }
+  .hop::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); flex: none; }
+  .hop.down { border-style: dashed; opacity: .65; }
+  .arrow { color: var(--text-3); font-size: 11px; }
+  .st { font-size: 12px; display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
+  .st.good { color: var(--good); } .st.bad { color: var(--bad); } .st.na { color: var(--text-3); }
+  .st b { color: var(--text-2); font-weight: 550; }
+  button {
+    font: inherit; font-size: 11.5px; font-weight: 550; border: 1px solid var(--border-strong);
+    background: var(--surface-2); color: var(--text-2); border-radius: 8px; padding: 4px 11px; cursor: pointer;
+    transition: all .15s ease;
+  }
+  button:hover { color: var(--text); border-color: var(--text-3); background: var(--surface); }
+  button:active { transform: translateY(1px); }
+  .probe {
+    grid-column: 2 / 4; font-size: 11.5px; color: var(--text-3);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    overflow-wrap: anywhere;
+  }
+  .probe:empty { display: none; }
+
+  /* ---------- services ---------- */
+  .svc { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px dashed var(--border); }
+  .svc:first-of-type { border-top: 0; padding-top: 2px; }
+  .svc .name { font-size: 13px; }
+
+  /* ---------- bars ---------- */
+  .bars { display: grid; gap: 14px; }
+  .bar { display: grid; grid-template-columns: 132px 1fr 118px; gap: 14px; align-items: center; }
+  .bar .name { font-size: 12.5px; color: var(--text-2); display: flex; align-items: center; gap: 8px; }
+  .track { height: 12px; background: var(--surface-2); border-radius: 999px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--border); }
+  .fill {
+    height: 100%; border-radius: 999px; min-width: 3px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--c) 70%, transparent), var(--c));
+    transition: width .5s cubic-bezier(.4,0,.2,1);
+  }
+  .bar .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px; }
+  .bar:hover .track { box-shadow: inset 0 0 0 1px var(--border-strong); }
+  .tip {
+    position: fixed; pointer-events: none; z-index: 9; max-width: 320px;
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px;
+    padding: 8px 10px; font-size: 12px; box-shadow: var(--shadow-2); display: none;
+  }
+
+  /* ---------- table ---------- */
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--border); }
-  th { color: var(--text-secondary); font-weight: 500; border-top: 0; }
+  th, td { text-align: left; padding: 9px 10px; border-top: 1px solid var(--border); }
+  th { color: var(--text-3); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; border-top: 0; }
+  tbody tr { transition: background .12s ease; }
+  tbody tr:hover { background: var(--surface-2); }
   td.n { text-align: right; font-variant-numeric: tabular-nums; }
-  a { color: var(--rtk); }
+  td.title { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--text-3); }
+  a { color: var(--rtk); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-3); }
+  .fade-in { animation: fade .35s ease both; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .fade-in { animation: none; }
+    .tile:hover { transform: none; }
+  }
+  /* ---------- narrow screens ---------- */
+  @media (max-width: 620px) {
+    main { padding: 20px 14px 40px; }
+    .chain { grid-template-columns: 1fr; row-gap: 8px; }
+    .chain > div:last-child, .probe { grid-column: 1; }
+    .bar { grid-template-columns: 96px 1fr 82px; gap: 10px; }
+    .tile.wide { grid-template-columns: 1fr; }
+    .tile.wide .v { grid-area: 2 / 1; justify-self: start; margin: 6px 0 0; }
+    .tile.wide .s { grid-area: 3 / 1; }
+    .card { padding: 14px; }
+  }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>agent-stack</h1>
-    <span class="muted" id="at">загрузка…</span>
+    <div class="brand">
+      <div class="logo">AS</div>
+      <div>
+        <h1>agent-stack</h1>
+        <div class="sub" data-t="subtitle"></div>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <span class="pill" id="health"><span class="dot"></span><span id="healthText"></span></span>
+      <span class="muted" id="at"></span>
+      <button id="lang" title="English / Русский">RU</button>
+    </div>
   </header>
 
   <section class="tiles" id="tiles"></section>
 
   <section class="grid2">
     <div class="card">
-      <h2>Цепочки агентов</h2>
+      <h2 data-t="chains">Agent chains</h2>
       <div id="chains"></div>
+      <div class="legend">
+        <span><span class="sw" style="--accent:var(--rtk)"></span>rtk</span>
+        <span><span class="sw" style="--accent:var(--bili)"></span>bili</span>
+        <span><span class="sw" style="--accent:var(--headroom)"></span>headroom</span>
+        <span><span class="sw" style="--accent:var(--upstream)"></span>provider</span>
+      </div>
     </div>
     <div class="card">
-      <h2>Сервисы</h2>
+      <h2 data-t="services">Services</h2>
       <div id="services"></div>
-      <p class="muted" style="margin:12px 0 0;font-size:12px">
-        Подробно: <a href="http://127.0.0.1:8787/dashboard" target="_blank">headroom dashboard</a>
+      <p class="muted" style="margin:14px 0 0;font-size:12px">
+        <span data-t="detailed">Details:</span>
+        <a href="http://127.0.0.1:8787/dashboard" target="_blank">headroom dashboard</a>
       </p>
     </div>
   </section>
 
   <section class="card">
-    <h2>Убрано токенов из запросов</h2>
+    <h2 data-t="removed">Tokens saved by each layer</h2>
     <div class="bars" id="bars"></div>
   </section>
 
   <section class="card">
-    <h2>Сессии bili</h2>
+    <h2 data-t="sessions">bili sessions</h2>
     <table>
-      <thead><tr><th>Сессия</th><th>Upstream</th><th class="n" style="text-align:right">Запросов</th><th style="text-align:right">Контекст</th></tr></thead>
+      <thead><tr>
+        <th data-t="thSession">Session</th><th>Upstream</th>
+        <th class="n" style="text-align:right" data-t="thRequests">Requests</th>
+        <th class="n" style="text-align:right" data-t="thContext">Context</th>
+      </tr></thead>
       <tbody id="sessions"></tbody>
     </table>
   </section>
@@ -110,8 +282,77 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const fmt = (n) => n == null ? '—' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+const STR = {
+  en: {
+    subtitle: 'rtk → bili → headroom → provider',
+    loading: 'loading…', refreshed: 'updated', noLink: 'no connection to agent-stack: ',
+    chains: 'Agent chains', services: 'Services', detailed: 'Details:',
+    removed: 'Tokens saved by each layer',
+    sessions: 'bili sessions', thSession: 'Session', thRequests: 'Requests', thContext: 'Context',
+    noSessions: 'no sessions yet',
+    notFound: 'not found', wired: 'wired', notWired: 'not wired', serviceDown: 'service is down',
+    running: 'running', notResponding: 'not responding',
+    healthOk: 'all services up', healthWarn: 'degraded', healthBad: 'services down',
+    probing: 'probing…', probeOk: 'reached the provider', probeBad: 'chain is broken',
+    rtkTitle: 'rtk · shell output', rtkNo: 'no data',
+    rtkSub: (s) => `${s.savingsPct}% · ${s.commands.toLocaleString('en-US')} commands`,
+    biliTitle: 'bili · cache savings', biliNo: 'not responding',
+    biliSub: (s) => `${s.cacheHitPct}% hit · ${s.sessions} sessions`,
+    hrTitle: 'headroom · compression', hrNo: 'not responding',
+    hrSub: (s) => `${s.savingsPct}% of ${fmt(s.tokensIn)} in · ${s.lifetimeRequests.toLocaleString('en-US')} requests`,
+    toolsTitle: 'headroom · tool schemas',
+    toolsSub: 'tool definitions stripped from requests',
+    usdTitle: 'headroom · USD saved', usdSub: 'compression + tool schemas + cache',
+    totalTitle: 'all layers · tokens saved',
+    totalSub: 'rtk + bili + headroom, kept off the provider',
+    tipRtk: 'shell command output, shrunk before it enters the context',
+    tipBili: 'prefix served from the local cache instead of being sent again',
+    tipHr: 'compression of tool results and schemas inside the request',
+    tipTools: 'tool definitions removed from requests',
+  },
+  ru: {
+    subtitle: 'rtk → bili → headroom → провайдер',
+    loading: 'загрузка…', refreshed: 'обновлено', noLink: 'нет связи с agent-stack: ',
+    chains: 'Цепочки агентов', services: 'Сервисы', detailed: 'Подробно:',
+    removed: 'Сэкономленные токены по слоям',
+    sessions: 'Сессии bili', thSession: 'Сессия', thRequests: 'Запросов', thContext: 'Контекст',
+    noSessions: 'сессий пока нет',
+    notFound: 'не найден', wired: 'подключён', notWired: 'не подключён', serviceDown: 'сервис не отвечает',
+    running: 'работает', notResponding: 'не отвечает',
+    healthOk: 'все сервисы работают', healthWarn: 'есть проблемы', healthBad: 'сервисы лежат',
+    probing: 'проверяю…', probeOk: 'дошёл до провайдера', probeBad: 'цепочка оборвана',
+    rtkTitle: 'rtk · вывод команд', rtkNo: 'нет данных',
+    rtkSub: (s) => `${s.savingsPct}% · ${s.commands.toLocaleString('ru-RU')} команд`,
+    biliTitle: 'bili · экономия кэша', biliNo: 'не отвечает',
+    biliSub: (s) => `${s.cacheHitPct}% попаданий · ${s.sessions} сессий`,
+    hrTitle: 'headroom · сжатие', hrNo: 'не отвечает',
+    hrSub: (s) => `${s.savingsPct}% из ${fmt(s.tokensIn)} на входе · ${s.lifetimeRequests.toLocaleString('ru-RU')} запросов`,
+    toolsTitle: 'headroom · схемы',
+    toolsSub: 'схемы инструментов вырезаны из запросов',
+    usdTitle: 'headroom · $ сэкономлено', usdSub: 'сжатие + схемы + кэш',
+    totalTitle: 'все слои · токенов сэкономлено',
+    totalSub: 'rtk + bili + headroom, не дошло до провайдера',
+    tipRtk: 'вывод shell-команд, ужатый до попадания в контекст',
+    tipBili: 'префикс отдан из локального кэша, а не отправлен заново',
+    tipHr: 'сжатие tool results и схем внутри запроса',
+    tipTools: 'определения инструментов, вырезанные из запросов',
+  },
+};
+
+// ?lang=ru|en forces a language for one visit (handy for links and screenshots);
+// otherwise the header toggle persists the choice per browser.
+const qLang = new URLSearchParams(location.search).get('lang');
+if (qLang === 'ru' || qLang === 'en') localStorage.setItem('agent-stack.lang', qLang);
+let lang = localStorage.getItem('agent-stack.lang') === 'ru' ? 'ru' : 'en';
+const t = (k) => STR[lang][k];
+const locale = () => (lang === 'ru' ? 'ru-RU' : 'en-US');
+
+const fmt = (n) => n == null ? '—' : n >= 1e9 ? (n / 1e9).toFixed(2) + 'B'
+  : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M'
+  : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
+const usd = (n) => n == null ? '—' : '$' + n.toFixed(2);
 
 // hop name → [layer color var, service id that must be up]
 const HOP = {
@@ -122,25 +363,42 @@ const HOP = {
   'headroom-deepseek': ['--headroom', 'headroomDeepseek'],
 };
 
-function status(ok, yes, no, na = 'не найден') {
+function status(ok, yes, no, na = t('notFound')) {
   if (ok === null) return `<span class="st na">· ${na}</span>`;
   return ok ? `<span class="st good">✓ <b>${yes}</b></span>` : `<span class="st bad">✗ <b>${no}</b></span>`;
 }
 
+function applyStatic() {
+  document.documentElement.lang = lang;
+  for (const el of document.querySelectorAll('[data-t]')) el.textContent = t(el.dataset.t);
+  $('lang').textContent = lang === 'ru' ? 'EN' : 'RU';
+  if (!last) { $('at').textContent = t('loading'); $('healthText').textContent = t('loading'); }
+}
+
+function health(s) {
+  const down = Object.values(s.services).filter((v) => !v.up).length;
+  const broken = s.agents.filter((a) => a.installed && !a.wired).length;
+  const level = down ? (down >= 2 ? 'bad' : 'warn') : broken ? 'warn' : 'good';
+  $('health').className = `pill ${level}`;
+  $('healthText').textContent = level === 'good' ? t('healthOk') : level === 'warn' ? t('healthWarn') : t('healthBad');
+}
+
 function tiles(s) {
-  const { rtk, bili, headroom, headroomDeepseek } = s.stats;
-  const usd = headroom && headroom.costWithout != null && headroom.costWith != null
-    ? '$' + (headroom.costWithout - headroom.costWith).toFixed(2) : '—';
+  const { rtk, bili, headroomAll, headroom, headroomDeepseek } = s.stats;
+  const hrUp = headroom || headroomDeepseek;
   const items = [
-    ['--rtk', 'rtk · вывод команд', fmt(rtk?.tokensSaved), rtk ? `${rtk.savingsPct}% · ${rtk.commands} команд` : 'нет данных'],
-    ['--bili', 'bili · cache hit', bili ? bili.cacheHitPct + '%' : '—', bili ? `${bili.sessions} сессий · ${bili.requests} запросов` : 'не отвечает'],
-    ['--headroom', 'headroom · сжатие', fmt((headroom?.tokensSaved ?? 0) + (headroomDeepseek?.tokensSaved ?? 0)),
-      headroom ? `${headroom.savingsPct}% · ${headroom.requests + (headroomDeepseek?.requests ?? 0)} запросов` : 'не отвечает'],
-    [null, 'headroom · $ сэкономлено', usd, headroom?.costWithout != null ? `из $${headroom.costWithout.toFixed(2)} без сжатия` : ''],
+    ['--rtk', t('rtkTitle'), rtk ? fmt(rtk.tokensSaved) : '—', rtk ? t('rtkSub')(rtk) : t('rtkNo')],
+    ['--bili', t('biliTitle'), bili ? fmt(bili.cached) : '—', bili ? t('biliSub')(bili) : t('biliNo')],
+    ['--headroom', t('hrTitle'), hrUp ? fmt(headroomAll.tokensSaved) : '—',
+      hrUp ? t('hrSub')(headroomAll) : t('hrNo')],
+    ['--headroom', t('toolsTitle'), hrUp ? fmt(headroomAll.toolTokensSaved) : '—',
+      hrUp ? t('toolsSub') : t('hrNo')],
+    [null, t('usdTitle'), hrUp ? usd(headroomAll.savedUsd) : '—', hrUp ? t('usdSub') : ''],
+    [null, t('totalTitle'), fmt(s.stats.totalSaved ?? 0), t('totalSub'), 'wide'],
   ];
-  $('tiles').innerHTML = items.map(([c, k, v, sub]) => `
-    <div class="card tile">
-      <div class="k">${c ? `<span class="sw" style="background:var(${c})"></span>` : ''}${k}</div>
+  $('tiles').innerHTML = items.map(([c, k, v, sub, cls]) => `
+    <div class="card tile fade-in${cls ? ' ' + cls : ''}"${c ? ` style="--accent:var(${c})"` : ''}>
+      <div class="k">${c ? '<span class="sw"></span>' : ''}${k}</div>
       <div class="v">${v}</div><div class="s">${esc(sub)}</div>
     </div>`).join('');
 }
@@ -150,11 +408,11 @@ function chains(s) {
     const hops = a.hops.map((h) => {
       const [c, svc] = HOP[h] ?? ['--upstream', null];
       const down = svc && !s.services[svc]?.up;
-      return `<span class="hop${down ? ' down' : ''}" style="--c:var(${c})" title="${down ? 'сервис не отвечает' : ''}">${esc(h)}${down ? ' ✗' : ''}</span>`;
+      return `<span class="hop${down ? ' down' : ''}" style="--c:var(${c})" title="${down ? t('serviceDown') : ''}">${esc(h)}${down ? ' ✗' : ''}</span>`;
     }).join('<span class="arrow">→</span>');
-    const st = !a.installed ? status(null) : status(a.wired, 'подключён', 'не подключён');
+    const st = !a.installed ? status(null) : status(a.wired, t('wired'), t('notWired'));
     return `<div class="chain">
-      <div><div>${esc(a.label)}</div><div>${st}</div></div>
+      <div><div class="agent">${esc(a.label)}</div><div>${st}</div></div>
       <div class="hops">${hops}</div>
       <div>${a.installed && ['claude', 'codex', 'dsh'].includes(a.id) ? `<button data-probe="${a.id}">e2e</button>` : ''}</div>
       <div class="probe" id="probe-${a.id}"></div>
@@ -164,22 +422,25 @@ function chains(s) {
 
 function services(s) {
   $('services').innerHTML = Object.entries(s.services).map(([id, v]) =>
-    `<div class="svc"><span>${esc(v.label)} <span class="muted">:${v.port}</span></span>${status(v.up, 'работает', 'не отвечает')}</div>`).join('');
+    `<div class="svc"><span class="name">${esc(v.label)} <span class="mono">:${v.port}</span></span>${status(v.up, t('running'), t('notResponding'))}</div>`).join('');
 }
 
 function bars(s) {
-  const { rtk, bili, headroom, headroomDeepseek } = s.stats;
-  // bili is not here on purpose: it keeps the prefix cacheable rather than
-  // removing tokens, so its number (cache hit) lives in its tile.
+  const { rtk, bili, headroomAll } = s.stats;
   const rows = [
-    ['rtk', '--rtk', rtk?.tokensSaved ?? 0, 'вывод shell-команд, до попадания в контекст'],
-    ['headroom', '--headroom', (headroom?.tokensSaved ?? 0) + (headroomDeepseek?.tokensSaved ?? 0), 'сжатие tool results / схем в запросе'],
+    ['rtk', '--rtk', rtk?.tokensSaved ?? 0, t('tipRtk')],
+    ['bili', '--bili', bili?.cached ?? 0, t('tipBili')],
+    ['headroom', '--headroom', headroomAll?.tokensSaved ?? 0, t('tipHr')],
+    ['tool schemas', '--headroom', headroomAll?.toolTokensSaved ?? 0, t('tipTools')],
   ];
+  // Log scale: bili's cache reads are two orders of magnitude above the
+  // compression layers, and on a linear scale every other bar disappears.
   const max = Math.max(1, ...rows.map((r) => r[2]));
+  const pct = (v) => (v > 0 ? Math.max(1.5, (Math.log10(v + 1) / Math.log10(max + 1)) * 100) : 0);
   $('bars').innerHTML = rows.map(([name, c, v, hint]) => `
-    <div class="bar" data-tip="<b>${name}</b>: ${v.toLocaleString('ru')} ток.<br><span class=muted>${hint}</span>">
-      <span>${name}</span>
-      <div class="track"><div class="fill" style="--c:var(${c});width:${(v / max) * 100}%"></div></div>
+    <div class="bar" data-tip="<b>${name}</b>: ${v.toLocaleString(locale())} tokens<br><span class=muted>${hint}</span>">
+      <span class="name"><span class="sw" style="--accent:var(${c})"></span>${name}</span>
+      <div class="track"><div class="fill" style="--c:var(${c});width:${pct(v)}%"></div></div>
       <span class="val">${fmt(v)}</span>
     </div>`).join('');
 }
@@ -187,28 +448,41 @@ function bars(s) {
 function sessions(s) {
   const rows = s.stats.bili?.recent ?? [];
   $('sessions').innerHTML = rows.length ? rows.map((x) => `<tr>
-      <td>${esc(x.title)}</td><td class="muted">${esc(x.upstream)}</td>
+      <td class="title">${esc(x.title)}</td><td class="mono">${esc(x.upstream)}</td>
       <td class="n">${x.requests}</td><td class="n">${fmt(x.contextTokens)}</td></tr>`).join('')
-    : '<tr><td colspan="4" class="muted">нет сессий</td></tr>';
+    : `<tr><td colspan="4" class="muted">${t('noSessions')}</td></tr>`;
+}
+
+let last = null;
+function render() {
+  if (!last) return;
+  applyStatic();
+  health(last); tiles(last); chains(last); services(last); bars(last); sessions(last);
+  $('at').textContent = `${t('refreshed')} ${new Date(last.at).toLocaleTimeString(locale())}`;
 }
 
 async function refresh() {
   try {
-    const s = await (await fetch('/api/status')).json();
-    tiles(s); chains(s); services(s); bars(s); sessions(s);
-    $('at').textContent = 'обновлено ' + new Date(s.at).toLocaleTimeString('ru');
+    last = await (await fetch('/api/status')).json();
+    render();
   } catch (e) {
-    $('at').textContent = 'нет связи с agent-stack: ' + e.message;
+    $('at').textContent = t('noLink') + e.message;
   }
 }
+
+$('lang').addEventListener('click', () => {
+  lang = lang === 'ru' ? 'en' : 'ru';
+  localStorage.setItem('agent-stack.lang', lang);
+  render();
+});
 
 document.addEventListener('click', async (e) => {
   const id = e.target.dataset?.probe;
   if (!id) return;
   const out = $('probe-' + id);
-  out.textContent = 'проверяю…';
+  out.textContent = t('probing');
   const r = await (await fetch('/api/probe?agent=' + id)).json();
-  out.innerHTML = `${r.ok ? '✓ дошёл до провайдера' : '✗ цепочка оборвана'} · ${esc(r.detail)}`;
+  out.innerHTML = `${r.ok ? '✓ ' + t('probeOk') : '✗ ' + t('probeBad')} · ${esc(r.detail)}`;
 });
 
 const tip = $('tip');
@@ -221,8 +495,9 @@ document.addEventListener('mousemove', (e) => {
   tip.style.top = e.clientY + 14 + 'px';
 });
 
+applyStatic();
 refresh();
-setInterval(refresh, 5000);
+setInterval(refresh, 15000);
 </script>
 </body>
 </html>

@@ -8,13 +8,13 @@ DIR="${AGENT_STACK_DIR:-$HOME/.agent-stack/app}"
 need() { command -v "$1" >/dev/null 2>&1; }
 
 if ! need brew && { ! need node || ! need uv; }; then
-  echo "→ ставлю Homebrew"
+  echo "→ installing Homebrew"
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv)"
 fi
-need node || { echo "→ ставлю node"; brew install node; }
-need uv   || { echo "→ ставлю uv";   brew install uv; }
-node -e 'process.exit(+process.versions.node.split(".")[0] >= 20 ? 0 : 1)' || { echo "нужен node >= 20"; exit 1; }
+need node || { echo "→ installing node"; brew install node; }
+need uv   || { echo "→ installing uv";   brew install uv; }
+node -e 'process.exit(+process.versions.node.split(".")[0] >= 20 ? 0 : 1)' || { echo "node >= 20 is required"; exit 1; }
 
 # Running from a checkout? use it; otherwise fetch the repo.
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
