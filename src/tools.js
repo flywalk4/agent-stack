@@ -54,8 +54,10 @@ export const isInstalled = (id) => Boolean(which(id === 'bili' ? 'bili' : id));
 export const ADDONS = {
   rtk: {
     claude: () => must(run('rtk', ['init', '-g', '--auto-patch']), 'rtk init claude'),
-    codex: () => must(run('rtk', ['init', '-g', '--codex', '--auto-patch']), 'rtk init codex'),
-    opencode: () => must(run('rtk', ['init', '-g', '--opencode', '--auto-patch']), 'rtk init opencode'),
+    // rtk rejects --auto-patch together with --codex / --opencode; these modes
+    // never prompt anyway.
+    codex: () => must(run('rtk', ['init', '-g', '--codex']), 'rtk init codex'),
+    opencode: () => must(run('rtk', ['init', '-g', '--opencode']), 'rtk init opencode'),
   },
   // Only the rule/skill layer: caveman's own `caveman <agent>` launcher and
   // proxy would add a fourth network hop in front of bili.
