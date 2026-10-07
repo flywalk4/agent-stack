@@ -1,7 +1,8 @@
 # agent-stack
 
 One installer for **rtk + bili (billion-context) + headroom + caveman** in front of
-**Claude Code**, **Codex**, **OpenCode** and **DeepSeek Harness**. macOS and Windows.
+**Claude Code**, **Codex**, **OpenCode** and **DeepSeek Harness**. macOS, Linux (systemd)
+and Windows.
 
 Every request from those agents is routed through a local proxy chain that removes tokens
 before they ever reach a provider — shell output, tool results and tool schemas — while
@@ -24,6 +25,13 @@ agent  →  rtk  →  bili  →  headroom  →  provider
 curl -fsSL https://raw.githubusercontent.com/flywalk4/agent-stack/main/install.sh | bash
 ```
 
+```bash
+# Debian / Ubuntu — same script, apt path (node, uv and git are installed for you)
+curl -fsSL https://raw.githubusercontent.com/flywalk4/agent-stack/main/install.sh | bash
+# unattended (no prompts, every detected agent + layer)
+curl -fsSL https://raw.githubusercontent.com/flywalk4/agent-stack/main/install.sh | bash -s -- --yes
+```
+
 ```powershell
 # Windows (PowerShell 5.1+)
 .\install.ps1
@@ -31,7 +39,8 @@ curl -fsSL https://raw.githubusercontent.com/flywalk4/agent-stack/main/install.s
 irm https://raw.githubusercontent.com/flywalk4/agent-stack/main/install.ps1 | iex
 ```
 
-The bootstrap installs node / uv (brew / winget), then runs the interactive installer:
+The bootstrap installs node / uv (brew on macOS, apt on Debian/Ubuntu, winget on Windows),
+then runs the interactive installer:
 
 1. **Install / update** or **Uninstall** — asked first, so a fresh checkout can also be used to tear down.
 2. Which agents to wire up — <kbd>space</kbd> selects, <kbd>enter</kbd> continues.
@@ -78,7 +87,9 @@ Why it is wired this way:
   `llm-deepseek` (`baseURL`, the api-key / `deepseek-official` route) and
   `llm-deepseek-account` (`inferenceOrigin`, the platform-account route) — both pointed at
   headroom `:8788`. Neither endpoint is in the profile's settings storage, so this patch layer
-  is the only place that can redirect the route, and the harness has to be restarted to read it.
+  is the only place that can redirect the route. The patch is written idempotently (the old
+  `deepseek-account` entry and any stray markers are scrubbed) and the harness picks it up
+  without a restart.
 
 ## Services
 
@@ -86,11 +97,26 @@ Why it is wired this way:
   logs in `~/Library/Logs/agent-stack/`. Each plist carries an explicit `PATH`
   (`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, `~/.cargo/bin`, …) so jobs
   started by launchd can still find brew/cargo/uv binaries such as `rtk`.
+- **Linux** — systemd user units `dev-agent-stack-<name>.service` in
+  `~/.config/systemd/user/`, enabled with `systemctl --user enable --now`, logs appended to
+  `~/.agent-stack/logs/<name>.log` (and mirrored into the journal, `SyslogIdentifier=agent-stack-<name>`).
+  The unit sets the same explicit `PATH` plus each service's own environment (e.g. the
+  DeepSeek proxy's separate `HEADROOM_SAVINGS_PATH`), restarts on failure, and stops with
+  `SIGTERM`/20 s so bili can flush its sessions. On a server, enable lingering once so the
+  units survive logout and start at boot:
+  ```bash
+  sudo loginctl enable-linger "$USER"      # then: systemctl --user status dev-agent-stack-bili
+  journalctl --user -u dev-agent-stack-headroom -f
+  ```
+  When the installer runs as root (a container or a root shell without a user manager) it
+  writes system-wide units to `/etc/systemd/system/` instead. `uninstall` removes whichever
+  scope it finds.
 - **Windows** — Task Scheduler tasks `agent-stack-*`, started at logon, hidden window,
   auto-restart. Logs in `%USERPROFILE%\.agent-stack\logs`.
 
-Hand-made `bili` / `headroom` launchd agents that would fight for the ports are detected
-and renamed to `*.plist.disabled-by-agent-stack` during install.
+Hand-made `bili` / `headroom` services that would fight for the ports (launchd agents or
+systemd units, user and system scope) are detected and renamed to
+`*.disabled-by-agent-stack` during install.
 
 `launchctl bootstrap` can report `Bootstrap failed: 5: Input/output error` even though the
 job loads: launchd tears the old job down asynchronously and it stays visible to
@@ -99,9 +125,21 @@ disappear before bootstrapping, retries the pair if needed, and confirms the job
 loaded before reporting success — a bare "is it loaded?" check would mistake the dying old
 job for the new one and silently leave the service down.
 
+### Linux troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `systemd user manager is not reachable` | `sudo loginctl enable-linger "$USER"`, log in again, re-run `agent-stack install` |
+| Services disappear after logout | lingering is off: `loginctl show-user "$USER" --property=Linger` |
+| Container without systemd | run the installer as root — it falls back to system units in `/etc/systemd/system` |
+| A service does not come up | `systemctl --user status dev-agent-stack-bili`, `journalctl --user -u dev-agent-stack-bili -n 50` |
+| `npm i -g billion-context` needs a compiler | `sudo apt-get install -y build-essential python3` |
+| `rtk: command not found` inside a service | the unit's `PATH` includes `~/.agent-stack/bin`; check `agent-stack doctor` reports the rtk path it uses |
+
 ## Dashboard
 
-<http://127.0.0.1:18800> — served by the `dev.agent-stack.dashboard` service.
+<http://127.0.0.1:18800> — served by the dashboard service (`dev.agent-stack.dashboard` on
+macOS, `dev-agent-stack-dashboard` under systemd).
 
 - Saved tokens per layer: rtk (shell output), bili (prefix served from the provider's
   cache), headroom (compression + deferred tool schemas), plus the combined total and the
@@ -133,17 +171,19 @@ files back. The tools themselves (rtk / bili / headroom) are left installed.
 
 ## Requirements
 
-- macOS or Windows (on Linux only the config files are written, services are skipped)
-- Node.js ≥ 20, uv, git
-- brew (macOS) / winget (Windows) — used by the bootstrap when something is missing
+- macOS, Debian/Ubuntu (anything with a systemd user manager) or Windows
+- Node.js ≥ 20, uv, git — installed by the bootstrap when missing
+- brew (macOS) / apt (Debian, Ubuntu) / winget (Windows) for the dependencies
 
 ## Repository layout
 
 ```
 bin/agent-stack.js     CLI entry point
+install.sh             bootstrap for macOS / Debian / Ubuntu (node + uv, then the installer)
+install.ps1            bootstrap for Windows
 src/install.js         interactive installer and uninstaller
 src/topology.js        ports, service definitions and each agent's chain (single source of truth)
-src/services.js        launchd / Task Scheduler service management
+src/services.js        launchd / systemd / Task Scheduler service management
 src/status.js          stats collection for the dashboard and doctor
 src/doctor.js          service, config and end-to-end checks
 src/tools.js           rtk / bili / headroom install and agent-side add-ons

@@ -9,21 +9,43 @@ const must = (r, what) => {
   return r;
 };
 
-// Pull the right asset from rtk's latest GitHub release (Windows has no brew).
+// rtk ships prebuilt archives for every platform we support (brew covers macOS,
+// but Windows and Linux take the archive). Unpack it into our own bin dir so no
+// root, no rust toolchain and no package manager is needed.
+const RTK_BIN_DIR = path.join(home, '.agent-stack', 'bin');
+
+function rtkAsset(assets, tag) {
+  const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
+  const patterns = isWin
+    ? [(n) => n.includes(arch) && /windows/i.test(n) && n.endsWith('.zip')]
+    : [
+      (n) => n.startsWith(`rtk-${arch}-unknown-linux-gnu`) && n.endsWith('.tar.gz'),
+      (n) => n.includes(arch) && /darwin/i.test(n) && n.endsWith('.tar.gz'),
+      (n) => n.includes(arch) && /linux/i.test(n) && n.endsWith('.tar.gz'),
+    ];
+  for (const match of patterns) {
+    const asset = assets.find((a) => match(a.name));
+    if (asset) return asset;
+  }
+  throw new Error(`no rtk ${process.platform}/${process.arch} asset in ${tag}`);
+}
+
 async function installRtkFromRelease() {
   const rel = await (await fetch('https://api.github.com/repos/rtk-ai/rtk/releases/latest')).json();
-  const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
-  const asset = rel.assets?.find((a) => a.name.includes(arch) && /windows/i.test(a.name) && a.name.endsWith('.zip'));
-  if (!asset) throw new Error(`no rtk windows ${arch} asset in ${rel.tag_name}`);
-  const binDir = path.join(home, '.agent-stack', 'bin');
-  fs.mkdirSync(binDir, { recursive: true });
-  const zip = path.join(os.tmpdir(), asset.name);
-  fs.writeFileSync(zip, Buffer.from(await (await fetch(asset.browser_download_url)).arrayBuffer()));
-  must(run('powershell.exe', ['-NoProfile', '-Command',
-    `Expand-Archive -Force -LiteralPath '${zip}' -DestinationPath '${binDir}'; ` +
-    `$p=[Environment]::GetEnvironmentVariable('Path','User'); if ($p -notlike '*${binDir}*') { [Environment]::SetEnvironmentVariable('Path', "$p;${binDir}", 'User') }`,
-  ], { shell: false }), 'rtk unzip');
-  process.env.PATH = `${process.env.PATH};${binDir}`;
+  const asset = rtkAsset(rel.assets ?? [], rel.tag_name);
+  fs.mkdirSync(RTK_BIN_DIR, { recursive: true });
+  const file = path.join(os.tmpdir(), asset.name);
+  fs.writeFileSync(file, Buffer.from(await (await fetch(asset.browser_download_url)).arrayBuffer()));
+  if (isWin) {
+    must(run('powershell.exe', ['-NoProfile', '-Command',
+      `Expand-Archive -Force -LiteralPath '${file}' -DestinationPath '${RTK_BIN_DIR}'`,
+    ], { shell: false }), 'rtk unzip');
+  } else {
+    must(run('tar', ['-xzf', file, '-C', RTK_BIN_DIR]), 'rtk untar');
+    const bin = path.join(RTK_BIN_DIR, 'rtk');
+    if (fs.existsSync(bin)) fs.chmodSync(bin, 0o755);
+  }
+  process.env.PATH = `${RTK_BIN_DIR}${path.delimiter}${process.env.PATH}`;
 }
 
 export const TOOLS = {
@@ -42,8 +64,15 @@ export const TOOLS = {
     version: () => out('rtk', ['--version']),
     install: async () => {
       if (isMac && which('brew')) return must(run('brew', ['install', 'rtk']), 'brew install rtk');
-      if (isWin) return installRtkFromRelease();
-      return must(run('cargo', ['install', '--git', 'https://github.com/rtk-ai/rtk']), 'cargo install rtk');
+      try {
+        return await installRtkFromRelease();
+      } catch (e) {
+        // No GitHub access but a rust toolchain around: build it instead.
+        if (!isWin && which('cargo')) {
+          return must(run('cargo', ['install', '--git', 'https://github.com/rtk-ai/rtk']), 'cargo install rtk');
+        }
+        throw e;
+      }
     },
   },
 };

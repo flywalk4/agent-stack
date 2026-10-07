@@ -5,6 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 
 export const isWin = process.platform === 'win32';
 export const isMac = process.platform === 'darwin';
+export const isLinux = process.platform === 'linux';
 export const home = os.homedir();
 
 export const STATE_DIR = path.join(home, '.agent-stack');
@@ -36,19 +37,51 @@ export function out(cmd, args) {
   }
 }
 
-// Absolute paths the background services run from. Resolved at install time
-// so launchd / Task Scheduler never depend on the login shell's PATH.
+// launchd hands jobs a bare /usr/bin:/bin PATH and systemd units inherit almost
+// nothing, so anything installed by brew, cargo, uv or a user-level npm prefix
+// (rtk above all) stays invisible unless we spell the directories out.
+export const JOB_PATH = [
+  ...(isMac ? ['/opt/homebrew/bin'] : []),
+  path.join(home, '.local', 'bin'),
+  path.join(STATE_DIR, 'bin'),
+  path.join(home, '.cargo', 'bin'),
+  path.join(home, '.bun', 'bin'),
+  '/usr/local/bin',
+  '/usr/bin',
+  '/bin',
+  '/usr/sbin',
+  '/sbin',
+].join(':');
+
+const firstExisting = (candidates) => candidates.find((f) => f && fs.existsSync(f)) ?? null;
+
+// Absolute paths the background services run from. Resolved at install time so
+// launchd / Task Scheduler / systemd never depend on the login shell's PATH.
 export function resolveRuntime() {
   const npmRoot = out('npm', ['root', '-g']);
   const uvToolDir = out('uv', ['tool', 'dir']);
-  const biliEntry = npmRoot && path.join(npmRoot, 'billion-context', 'dist', 'index.js');
-  const headroomPy = uvToolDir && path.join(
-    uvToolDir, 'headroom-ai', isWin ? 'Scripts' : 'bin', isWin ? 'python.exe' : 'python',
+  const nodeModulesDirs = [
+    npmRoot,
+    path.join(home, '.local', 'lib', 'node_modules'),
+    path.join(home, '.npm-global', 'lib', 'node_modules'),
+    '/usr/local/lib/node_modules',
+    '/usr/lib/node_modules',
+  ];
+  const uvToolDirs = [
+    uvToolDir,
+    path.join(home, '.local', 'share', 'uv', 'tools'),
+    '/usr/local/share/uv/tools',
+  ];
+  const biliEntry = firstExisting(
+    nodeModulesDirs.map((d) => d && path.join(d, 'billion-context', 'dist', 'index.js')),
   );
+  const headroomPython = firstExisting(uvToolDirs.map((d) => d && path.join(
+    d, 'headroom-ai', isWin ? 'Scripts' : 'bin', isWin ? 'python.exe' : 'python',
+  )));
   return {
     node: process.execPath,
-    biliEntry: biliEntry && fs.existsSync(biliEntry) ? biliEntry : null,
-    headroomPython: headroomPy && fs.existsSync(headroomPy) ? headroomPy : null,
+    biliEntry,
+    headroomPython,
     headroomBin: which('headroom'),
     rtk: which('rtk'),
   };

@@ -1,10 +1,11 @@
 import * as p from '@clack/prompts';
-import { isMac, isWin, resolveRuntime } from './platform.js';
+import { isMac, isWin, isLinux, resolveRuntime } from './platform.js';
 import { CHAINS, SERVICES } from './topology.js';
 import { TARGETS } from './targets/index.js';
 import { TOOLS, ADDONS, isInstalled } from './tools.js';
 import {
   serviceCommands, installService, removeService, waitHealthy, findForeignAgents, retireForeignAgent,
+  systemdMode, ensureLinger,
 } from './services.js';
 import { backedUpFiles, restore } from './backup.js';
 
@@ -55,7 +56,11 @@ async function chooseMode() {
 export async function install({ yes = false } = {}) {
   if (!yes) requireTTY('agent-stack install --yes');
   p.intro('agent-stack · rtk + bili + headroom + caveman');
-  if (!isMac && !isWin) p.log.warn(`${process.platform}: only config files are supported, not services.`);
+  if (!isMac && !isWin && !isLinux) p.log.warn(`${process.platform}: only config files are supported, not services.`);
+  if (isLinux && !systemdMode()) {
+    p.log.warn('systemd user manager is not reachable — services cannot be started.\n'
+      + 'Run: sudo loginctl enable-linger $USER, then log in again and re-run the installer.');
+  }
 
   // First run installs, later runs often want the other direction — offer both.
   if (!yes && await chooseMode() === 'uninstall') return uninstall();
@@ -94,7 +99,7 @@ export async function install({ yes = false } = {}) {
 
   const foreign = findForeignAgents();
   if (foreign.length) {
-    p.log.warn(`Found your own bili/headroom launchd agents (they would take the ports):\n${foreign.join('\n')}`);
+    p.log.warn(`Found your own bili/headroom services (they would take the ports):\n${foreign.join('\n')}`);
     const ok = yes || cancelled(await p.confirm({ message: 'Disable them (rename to .disabled-by-agent-stack)?' }));
     if (ok) foreign.forEach(retireForeignAgent);
   }
@@ -132,6 +137,12 @@ export async function install({ yes = false } = {}) {
       installService(name, cmds[name]);
       if (!(await waitHealthy(name))) throw new Error('did not come up within 60s — check the logs');
     });
+  }
+
+  // systemd user units die with the last session unless lingering is on.
+  if (isLinux && wanted.length && ensureLinger() === false) {
+    p.log.warn('Could not enable lingering: the services stop when you log out.\n'
+      + 'Run: sudo loginctl enable-linger $USER');
   }
 
   // 3. wire agents

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isMac, isWin, home, LOG_DIR, run, out } from './platform.js';
+import { isMac, isWin, isLinux, home, LOG_DIR, JOB_PATH, run, out, which } from './platform.js';
 import { PORTS, SERVICES } from './topology.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,17 +25,12 @@ export function serviceCommands(rt) {
   };
 }
 
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const isRoot = () => typeof process.getuid === 'function' && process.getuid() === 0;
+
 // ---------- macOS: launchd user agents ----------
 
 const xml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-// launchd hands jobs a bare /usr/bin:/bin PATH, so anything installed by brew,
-// cargo or uv (rtk above all) stays invisible unless we spell it out here.
-const JOB_PATH = [
-  '/opt/homebrew/bin', '/usr/local/bin',
-  path.join(home, '.local', 'bin'), path.join(home, '.cargo', 'bin'),
-  '/usr/bin', '/bin', '/usr/sbin', '/sbin',
-].join(':');
 
 function plist(label, argv, log, env = {}) {
   const vars = { PATH: JOB_PATH, ...env };
@@ -63,7 +58,6 @@ ${envXml}
 const uid = () => out('id', ['-u']);
 const plistPath = (label) => path.join(LAUNCH_AGENTS, `${label}.plist`);
 
-const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 const isLoaded = (domain, label) => run('launchctl', ['print', `${domain}/${label}`]).status === 0;
 
 // launchd tears a booted-out job down asynchronously, and the old job stays
@@ -102,21 +96,6 @@ function macRemove(name) {
   fs.rmSync(plistPath(label), { force: true });
 }
 
-// Hand-made agents that run bili/headroom on our ports would fight for them.
-export function findForeignAgents() {
-  if (!isMac || !fs.existsSync(LAUNCH_AGENTS)) return [];
-  return fs.readdirSync(LAUNCH_AGENTS)
-    .filter((f) => f.endsWith('.plist') && !f.startsWith(LABEL_PREFIX))
-    .map((f) => path.join(LAUNCH_AGENTS, f))
-    .filter((f) => /billion-context|headroom\.cli/.test(fs.readFileSync(f, 'utf8')));
-}
-
-export function retireForeignAgent(file) {
-  const label = path.basename(file, '.plist');
-  run('launchctl', ['bootout', `gui/${uid()}/${label}`]);
-  fs.renameSync(file, `${file}.disabled-by-agent-stack`);
-}
-
 // ---------- Windows: Task Scheduler, at logon, hidden, auto-restart ----------
 
 const psq = (s) => `'${s.replace(/'/g, "''")}'`;
@@ -149,18 +128,172 @@ function winRemove(name) {
   ], { shell: false });
 }
 
+// ---------- Linux: systemd user units ----------
+
+export const UNIT_PREFIX = 'dev-agent-stack-';
+export const unitName = (name) => `${UNIT_PREFIX}${name}.service`;
+const systemdUserDir = () => path.join(home, '.config', 'systemd', 'user');
+
+// systemd expands `%` specifiers and `$` variables inside a unit file, and uses
+// double quotes with backslash escapes for word splitting — so every argument
+// and environment value goes through here.
+const unitWord = (s) => `"${String(s)
+  .replace(/%/g, '%%')
+  .replace(/\$/g, () => '$$')
+  .replace(/\\/g, '\\\\')
+  .replace(/"/g, '\\"')}"`;
+
+export function systemdUnit({ name, label, argv, log, env = {}, mode = 'user' }) {
+  const vars = { PATH: JOB_PATH, ...env };
+  return `[Unit]
+Description=agent-stack: ${label}
+
+[Service]
+Type=simple
+WorkingDirectory=${unitWord(home)}
+ExecStartPre=-/bin/mkdir -p ${unitWord(path.dirname(log))}
+ExecStart=${argv.map(unitWord).join(' ')}
+${Object.entries(vars).map(([k, v]) => `Environment=${k}=${unitWord(v)}`).join('\n')}
+Restart=always
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=20
+SyslogIdentifier=agent-stack-${name}
+StandardOutput=append:${log}
+StandardError=append:${log}
+
+[Install]
+WantedBy=${mode === 'user' ? 'default.target' : 'multi-user.target'}
+`;
+}
+
+const systemctl = (mode, args) => run('systemctl', mode === 'user' ? ['--user', ...args] : args);
+const scArgs = (mode, args) => `systemctl ${mode === 'user' ? '--user ' : ''}${args.join(' ')}`;
+
+// A user manager answers `show-environment`; a bare container or a root shell
+// without lingering does not, in which case system-wide units are the only
+// option (and root is the only one who can write them).
+export function systemdMode() {
+  if (run('systemctl', ['--user', 'show-environment']).status === 0) return 'user';
+  if (isRoot() && fs.existsSync('/run/systemd/system')) return 'system';
+  return null;
+}
+
+function linuxInstall(name, argv) {
+  const mode = systemdMode();
+  if (!mode) {
+    throw new Error('no systemd user manager — run `sudo loginctl enable-linger $USER`, log in again, then re-run the installer');
+  }
+  const unit = unitName(name);
+  const dir = mode === 'user' ? systemdUserDir() : '/etc/systemd/system';
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, unit), systemdUnit({
+    name,
+    label: SERVICES[name]?.label ?? name,
+    argv,
+    log: path.join(LOG_DIR, `${name}.log`),
+    env: SERVICES[name]?.env,
+    mode,
+  }));
+  systemctl(mode, ['daemon-reload']);
+  systemctl(mode, ['enable', unit]);
+  const r = systemctl(mode, ['restart', unit]);
+  if (r.status !== 0) {
+    throw new Error(`${scArgs(mode, ['restart', unit])}: ${(r.stderr || r.stdout || '').trim()}`);
+  }
+  for (let i = 0; i < 50; i++) {
+    if (systemctl(mode, ['is-active', '--quiet', unit]).status === 0) return;
+    sleepSync(100);
+  }
+  throw new Error(`${unit} did not become active — check: journalctl ${mode === 'user' ? '--user ' : ''}-u ${unit} -n 50`);
+}
+
+function linuxRemove(name) {
+  const unit = unitName(name);
+  for (const [mode, dir] of [['user', systemdUserDir()], ['system', '/etc/systemd/system']]) {
+    const file = path.join(dir, unit);
+    if (!fs.existsSync(file)) continue;
+    systemctl(mode, ['disable', '--now', unit]);
+    try {
+      fs.rmSync(file, { force: true });
+    } catch (e) {
+      throw new Error(`cannot remove ${file}: ${e.message}`);
+    }
+    systemctl(mode, ['daemon-reload']);
+  }
+}
+
+// Without lingering, systemd kills the units when the last session of that user
+// logs out — fine on a desktop, useless on a server. Best effort: enable it, and
+// tell the caller when we could not.
+export function ensureLinger() {
+  if (!isLinux || isRoot() || !which('loginctl')) return null;
+  const user = process.env.USER || out('id', ['-un']);
+  const linger = () => /Linger=yes/.test(out('loginctl', ['show-user', user, '--property=Linger']) ?? '');
+  if (linger()) return true;
+  run('loginctl', ['enable-linger', user]);
+  return linger();
+}
+
+// ---------- foreign agents ----------
+
+// Hand-made agents/units that run bili/headroom on our ports would fight for them.
+export function findForeignAgents() {
+  const hits = (dir) => {
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir)
+      .filter((f) => f.endsWith('.service') && !f.startsWith(UNIT_PREFIX))
+      .map((f) => path.join(dir, f))
+      .filter((f) => {
+        try {
+          return /billion-context|headroom\.cli/.test(fs.readFileSync(f, 'utf8'));
+        } catch {
+          return false;
+        }
+      });
+  };
+  if (isMac) {
+    if (!fs.existsSync(LAUNCH_AGENTS)) return [];
+    return fs.readdirSync(LAUNCH_AGENTS)
+      .filter((f) => f.endsWith('.plist') && !f.startsWith(LABEL_PREFIX))
+      .map((f) => path.join(LAUNCH_AGENTS, f))
+      .filter((f) => /billion-context|headroom\.cli/.test(fs.readFileSync(f, 'utf8')));
+  }
+  if (isLinux) {
+    const dirs = systemdMode() === 'system'
+      ? ['/etc/systemd/system']
+      : [systemdUserDir(), '/etc/systemd/system'];
+    return dirs.flatMap(hits);
+  }
+  return [];
+}
+
+export function retireForeignAgent(file) {
+  const name = path.basename(file).replace(/\.(plist|service)$/, '');
+  if (isMac) {
+    run('launchctl', ['bootout', `gui/${uid()}/${name}`]);
+  } else if (isLinux) {
+    const unit = path.basename(file);
+    const scope = file.startsWith(systemdUserDir()) ? 'user' : 'system';
+    systemctl(scope, ['disable', '--now', unit]);
+  }
+  fs.renameSync(file, `${file}.disabled-by-agent-stack`);
+}
+
 // ---------- public ----------
 
 export function installService(name, argv) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
   if (isMac) return macInstall(name, argv);
   if (isWin) return winInstall(name, argv);
+  if (isLinux) return linuxInstall(name, argv);
   throw new Error(`unsupported platform: ${process.platform}`);
 }
 
 export function removeService(name) {
   if (isMac) return macRemove(name);
   if (isWin) return winRemove(name);
+  if (isLinux) return linuxRemove(name);
 }
 
 export async function waitHealthy(name, timeoutMs = 60_000) {
