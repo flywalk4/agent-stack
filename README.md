@@ -94,10 +94,12 @@ job for the new one and silently leave the service down.
 
 <http://127.0.0.1:18800> — served by the `dev.agent-stack.dashboard` service.
 
-- Saved tokens per layer: rtk (shell output), bili (prefix served from cache),
-  headroom (compression + tool schemas), plus the combined total and the USD figure.
-  The total counts bili's cache reads in full, even though providers bill them at a
-  fraction of the normal input price — so read it as tokens, not as money.
+- Saved tokens per layer: rtk (shell output), bili (prefix served from the provider's
+  cache), headroom (compression + tool schemas), plus the combined total and the USD figure.
+  - rtk and headroom save tokens by never sending them.
+  - bili saves them by keeping the prefix stable so the provider's prompt cache keeps
+    hitting; those tokens are billed at roughly a tenth of the normal input price.
+  The total adds both, and breaks them down underneath.
 - Agent chains with live hop health, service status and a one-click `e2e` probe that
   sends a bogus-key request through the whole chain (a provider-shaped `401` means the
   chain works and no tokens were spent).

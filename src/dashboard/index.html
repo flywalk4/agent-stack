@@ -183,6 +183,7 @@
   }
   .bar .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px; }
   .bar:hover .track { box-shadow: inset 0 0 0 1px var(--border-strong); }
+  .note { color: var(--text-3); font-size: 12px; line-height: 1.55; margin: 14px 0 0; }
   .tip {
     position: fixed; pointer-events: none; z-index: 9; max-width: 320px;
     background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px;
@@ -264,6 +265,7 @@
   <section class="card">
     <h2 data-t="removed">Tokens saved by each layer</h2>
     <div class="bars" id="bars"></div>
+    <p class="note" data-t="barsNote"></p>
   </section>
 
   <section class="card">
@@ -299,18 +301,19 @@ const STR = {
     rtkTitle: 'rtk · shell output', rtkNo: 'no data',
     rtkSub: (s) => `${s.savingsPct}% · ${s.commands.toLocaleString('en-US')} commands`,
     biliTitle: 'bili · cache savings', biliNo: 'not responding',
-    biliSub: (s) => `${s.cacheHitPct}% hit · ${s.sessions} sessions`,
+    biliSub: (s) => `${s.cacheHitPct}% of ${fmt(s.tokensIn)} input · ${s.sessions} sessions`,
     hrTitle: 'headroom · compression', hrNo: 'not responding',
     hrSub: (s) => `${s.savingsPct}% of ${fmt(s.tokensIn)} in · ${s.lifetimeRequests.toLocaleString('en-US')} requests`,
     toolsTitle: 'headroom · tool schemas',
     toolsSub: 'tool definitions stripped from requests',
     usdTitle: 'headroom · USD saved', usdSub: 'compression + tool schemas + cache',
     totalTitle: 'all layers · tokens saved',
-    totalSub: 'rtk + bili + headroom, kept off the provider',
+    totalSub: (s) => `rtk + headroom ${fmt(s.removedTokens)} · bili cache ${fmt(s.cachedTokens)}`,
     tipRtk: 'shell command output, shrunk before it enters the context',
-    tipBili: 'prefix served from the local cache instead of being sent again',
+    tipBili: 'the prefix hit the provider prompt cache, billed at a fraction of the normal input price',
     tipHr: 'compression of tool results and schemas inside the request',
     tipTools: 'tool definitions removed from requests',
+    barsNote: 'rtk and headroom save tokens by never sending them. bili saves them by keeping the prefix stable so the provider prompt cache keeps hitting — those are billed at roughly a tenth of the normal input price.',
   },
   ru: {
     subtitle: 'rtk → bili → headroom → провайдер',
@@ -326,18 +329,19 @@ const STR = {
     rtkTitle: 'rtk · вывод команд', rtkNo: 'нет данных',
     rtkSub: (s) => `${s.savingsPct}% · ${s.commands.toLocaleString('ru-RU')} команд`,
     biliTitle: 'bili · экономия кэша', biliNo: 'не отвечает',
-    biliSub: (s) => `${s.cacheHitPct}% попаданий · ${s.sessions} сессий`,
+    biliSub: (s) => `${s.cacheHitPct}% из ${fmt(s.tokensIn)} на входе · ${s.sessions} сессий`,
     hrTitle: 'headroom · сжатие', hrNo: 'не отвечает',
     hrSub: (s) => `${s.savingsPct}% из ${fmt(s.tokensIn)} на входе · ${s.lifetimeRequests.toLocaleString('ru-RU')} запросов`,
     toolsTitle: 'headroom · схемы',
     toolsSub: 'схемы инструментов вырезаны из запросов',
     usdTitle: 'headroom · $ сэкономлено', usdSub: 'сжатие + схемы + кэш',
     totalTitle: 'все слои · токенов сэкономлено',
-    totalSub: 'rtk + bili + headroom, не дошло до провайдера',
+    totalSub: (s) => `rtk + headroom ${fmt(s.removedTokens)} · кэш bili ${fmt(s.cachedTokens)}`,
     tipRtk: 'вывод shell-команд, ужатый до попадания в контекст',
-    tipBili: 'префикс отдан из локального кэша, а не отправлен заново',
+    tipBili: 'префикс попал в кэш провайдера, такие токены биллятся по ~10% обычной цены',
     tipHr: 'сжатие tool results и схем внутри запроса',
     tipTools: 'определения инструментов, вырезанные из запросов',
+    barsNote: 'rtk и headroom экономят токены тем, что вообще их не отправляют. bili экономит тем, что держит префикс стабильным и кэш провайдера продолжает попадать — такие токены биллятся примерно по 10% обычной цены.',
   },
 };
 
@@ -394,7 +398,7 @@ function tiles(s) {
     ['--headroom', t('toolsTitle'), hrUp ? fmt(headroomAll.toolTokensSaved) : '—',
       hrUp ? t('toolsSub') : t('hrNo')],
     [null, t('usdTitle'), hrUp ? usd(headroomAll.savedUsd) : '—', hrUp ? t('usdSub') : ''],
-    [null, t('totalTitle'), fmt(s.stats.totalSaved ?? 0), t('totalSub'), 'wide'],
+    [null, t('totalTitle'), fmt(s.stats.totalSaved ?? 0), t('totalSub')(s.stats), 'wide'],
   ];
   $('tiles').innerHTML = items.map(([c, k, v, sub, cls]) => `
     <div class="card tile fade-in${cls ? ' ' + cls : ''}"${c ? ` style="--accent:var(${c})"` : ''}>

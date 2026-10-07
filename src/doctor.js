@@ -66,13 +66,16 @@ export async function doctor({ json = false } = {}) {
   console.log('\nSavings');
   if (rtk) console.log(`  rtk:      ${n(rtk.tokensSaved)} tokens (${rtk.savingsPct}%) over ${n(rtk.commands)} commands`);
   else console.log(`  rtk:      no data (no rtk binary at ${s.stats.rtkPath})`);
-  if (bili) console.log(`  bili:     ${n(bili.cached)} tokens served from cache (${bili.cacheHitPct}% hit, ${n(bili.sessions)} sessions)`);
+  if (bili) console.log(`  bili:     ${n(bili.cached)} tokens saved via cache (${bili.cacheHitPct}% of ${n(bili.tokensIn)} in, ${n(bili.sessions)} sessions)`);
   if (headroomAll) {
     console.log(`  headroom: ${n(headroomAll.tokensSaved)} tokens compressed (${headroomAll.savingsPct}% of ${n(headroomAll.tokensIn)} in)`);
     console.log(`            tool schemas ${n(headroomAll.toolTokensSaved)} · cache reads ${n(headroomAll.cacheReadTokens)}`
       + ` · $${headroomAll.savedUsd} saved · ${n(headroomAll.lifetimeRequests)} requests`);
   } else console.log('  headroom: no data (proxy not answering /stats)');
-  if (s.stats.totalSaved) console.log(`  total:    ${n(s.stats.totalSaved)} tokens kept off the provider (rtk + bili + headroom)`);
+  if (s.stats.totalSaved) {
+    console.log(`  saved:    ${n(s.stats.totalSaved)} tokens saved (rtk + headroom ${n(s.stats.removedTokens)}, bili cache ${n(s.stats.cachedTokens)})`);
+    console.log('            bili\'s share is served from the provider prompt cache, billed at about a tenth of full price');
+  }
   const bad = Object.values(s.services).some((v) => !v.up) || s.agents.some((a) => a.installed && probes[a.id].ok === false);
   process.exitCode = bad ? 1 : 0;
 }

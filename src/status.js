@@ -155,14 +155,20 @@ export async function collect() {
     headroomAll: mergeHeadroom(headroom, headroomDeepseek),
     rtkPath: rtkPath(),
   };
-  // Tokens the chain kept off the provider's bill: rtk shrinks shell output,
-  // headroom compresses the request and strips tool schemas, and bili serves
-  // the prefix from its cache instead of sending it again.
-  const removed = (stats.rtk?.tokensSaved ?? 0)
+  // Two different kinds of saving, kept apart on purpose:
+  //  - removedTokens: never left this machine — rtk shrinks shell output and
+  //    headroom compresses requests and strips tool schemas before sending.
+  //  - cachedTokens (bili): the request did go out, but the prefix hit the
+  //    provider's prompt cache, which is billed at a fraction of the normal
+  //    input price (10% for Anthropic and DeepSeek). Real money, but not real
+  //    tokens, so it must never be presented as "tokens not sent".
+  const removedTokens = (stats.rtk?.tokensSaved ?? 0)
     + (stats.headroomAll?.tokensSaved ?? 0)
-    + (stats.headroomAll?.toolTokensSaved ?? 0)
-    + (stats.bili?.cached ?? 0);
-  stats.biliSaved = stats.bili?.cached ?? 0;
-  stats.totalSaved = removed;
+    + (stats.headroomAll?.toolTokensSaved ?? 0);
+  const cachedTokens = stats.bili?.cached ?? 0;
+  stats.removedTokens = removedTokens;
+  stats.cachedTokens = cachedTokens;
+  stats.biliSaved = cachedTokens;
+  stats.totalSaved = removedTokens + cachedTokens;
   return { at: new Date().toISOString(), services, agents, stats };
 }
