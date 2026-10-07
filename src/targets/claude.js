@@ -16,7 +16,7 @@ export default {
   },
 
   // settings.json env beats the process env, so this also covers wrappers
-  // that exec claude (gigaclaudecode merges its --settings on top of it).
+  // that exec claude and merge their own --settings on top of it.
   apply() {
     backupOnce(file);
     const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};

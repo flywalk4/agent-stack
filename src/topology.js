@@ -47,7 +47,7 @@ export const SERVICES = {
 // Chains per client. `hops` are what the dashboard draws and doctor probes.
 export const CHAINS = {
   claude: {
-    label: 'Claude Code (+ gigaclaudecode)',
+    label: 'Claude Code',
     hops: ['rtk', 'bili', 'headroom', 'api.anthropic.com'],
     baseUrl: biliPrefix(url(PORTS.headroom)),
   },

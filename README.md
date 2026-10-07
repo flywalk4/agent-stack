@@ -1,6 +1,6 @@
 # agent-stack
 
-Один установщик для **rtk + bili (billion-context) + headroom + caveman** под Claude Code, Codex, OpenCode, DeepSeek Harness. macOS и Windows.
+Один установщик для **rtk + bili (billion-context) + headroom + caveman** для Claude Code, Codex, OpenCode, DeepSeek Harness. macOS и Windows.
 
 ## Установка
 
@@ -27,7 +27,7 @@ agent-stack uninstall         снять сервисы, вернуть конф
 
 | Агент | Цепочка |
 |---|---|
-| Claude Code (+ gigaclaudecode) | rtk → bili `:18788` → headroom `:8787` → api.anthropic.com |
+| Claude Code | rtk → bili `:18788` → headroom `:8787` → api.anthropic.com |
 | Codex | rtk → bili `:18788` → headroom `:8787` → chatgpt.com / api.openai.com (HTTP, без WS) |
 | OpenCode | rtk → bili-native (in-process) → headroom transport plugin → `:8787` → провайдер |
 | DeepSeek Harness | rtk → bili-native (dsh bundle) → headroom `:8788` → api.deepseek.com |
