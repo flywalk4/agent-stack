@@ -51,7 +51,7 @@ export async function install({ yes = false } = {}) {
       { value: 'rtk', label: 'rtk', hint: 'сжатие вывода команд (хуки в агенте)' },
       { value: 'bili', label: 'bili', hint: 'свёртка контекста сессии' },
       { value: 'headroom', label: 'headroom', hint: 'сжатие запросов (tool results/schemas)' },
-      { value: 'caveman', label: 'caveman', hint: 'краткие ответы (правила/скиллы)' },
+      { value: 'caveman', label: 'caveman', hint: 'краткие ответы, всегда включён по умолчанию' },
       { value: 'dashboard', label: 'dashboard', hint: `общий дашборд :${SERVICES.dashboard.port}` },
     ],
     initialValues: ['rtk', 'bili', 'headroom', 'caveman', 'dashboard'],

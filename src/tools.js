@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { isMac, isWin, home, which, run, out } from './platform.js';
+import { CAVEMAN } from './caveman.js';
 
 const must = (r, what) => {
   if (r.status !== 0) throw new Error(`${what}: ${(r.stderr || r.stdout || '').trim().slice(-400)}`);
@@ -59,14 +60,5 @@ export const ADDONS = {
     codex: () => must(run('rtk', ['init', '-g', '--codex']), 'rtk init codex'),
     opencode: () => must(run('rtk', ['init', '-g', '--opencode']), 'rtk init opencode'),
   },
-  // Only the rule/skill layer: caveman's own `caveman <agent>` launcher and
-  // proxy would add a fourth network hop in front of bili.
-  caveman: {
-    claude: () => {
-      run('claude', ['plugin', 'marketplace', 'add', 'JuliusBrussee/caveman']);
-      return must(run('claude', ['plugin', 'install', 'caveman@caveman']), 'claude plugin install caveman');
-    },
-    codex: () => must(run('npx', ['-y', 'skills', 'add', 'JuliusBrussee/caveman', '--skill', '*', '-a', 'codex', '--yes', '-g']), 'skills add caveman codex'),
-    opencode: () => must(run('npx', ['-y', 'skills', 'add', 'JuliusBrussee/caveman', '--skill', '*', '-a', 'opencode', '--yes', '-g']), 'skills add caveman opencode'),
-  },
+  caveman: CAVEMAN,
 };
