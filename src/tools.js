@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { isMac, isWin, home, which, run, out } from './platform.js';
+import { isMac, isWin, home, which, run, out, resolveRuntime } from './platform.js';
 import { CAVEMAN } from './caveman.js';
 
 const must = (r, what) => {
@@ -134,7 +134,18 @@ export const TOOLS = {
   headroom: {
     label: 'headroom',
     version: () => out('headroom', ['--version']),
-    install: () => must(run('uv', ['tool', 'install', '--upgrade', 'headroom-ai']), 'uv tool install headroom-ai'),
+    install: () => {
+      // `headroom proxy` lives in the `proxy` extra — installing the bare package
+      // leaves the service crash-looping on "No module named 'fastapi'".
+      must(run('uv', ['tool', 'install', '--upgrade', 'headroom-ai[proxy]']), 'uv tool install headroom-ai[proxy]');
+      const py = resolveRuntime().headroomPython;
+      if (!py || !fs.existsSync(py)) return;
+      // Ask headroom itself: its own guard knows which modules the proxy needs.
+      const probe = run(py, ['-c', 'from headroom.cli.proxy import ensure_proxy_dependencies; ensure_proxy_dependencies()']);
+      if (probe.status !== 0) {
+        throw new Error(`headroom proxy extras are missing (${(probe.stderr || probe.stdout || '').trim().slice(-300)})`);
+      }
+    },
   },
   rtk: {
     label: 'rtk',
