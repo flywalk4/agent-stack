@@ -39,6 +39,10 @@ export const SERVICES = {
     port: PORTS.headroomDeepseek,
     health: '/health',
     upstream: 'https://api.deepseek.com',
+    // The harness speaks Anthropic Messages, so this instance needs the
+    // Anthropic-shaped DeepSeek endpoint too — without it headroom would hand
+    // DeepSeek keys and payloads to api.anthropic.com.
+    anthropicUpstream: 'https://api.deepseek.com/anthropic',
     // Both proxies otherwise rewrite the same ~/.headroom/proxy_savings.json
     // from their own memory — last writer wins, so each instance's session view
     // clobbers the other's. The append-only events ledger stays shared (appends

@@ -3,22 +3,30 @@ import { CHAINS, PORTS, url } from './topology.js';
 
 // End-to-end probes with a bogus key: a provider-shaped 401 proves the request
 // walked the whole chain and reached the real upstream, without spending tokens.
+// `expect` pins the provider: a chain that silently forwards to the wrong
+// upstream also answers 401, only with a different provider's wording.
 const PROBES = {
   claude: {
     url: `${CHAINS.claude.baseUrl}/v1/messages`,
     headers: { 'x-api-key': 'agent-stack-probe', 'anthropic-version': '2023-06-01' },
     body: { model: 'claude-haiku-4-5-20251001', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] },
+    expect: /invalid x-api-key/i,
   },
   codex: {
     url: `${CHAINS.codex.baseUrl}/responses`,
     // bili refuses Responses requests without a conversation identity.
     headers: { authorization: 'Bearer agent-stack-probe', 'x-session-id': 'agent-stack-probe' },
     body: { model: 'gpt-4.1-mini', input: 'hi', max_output_tokens: 16 },
+    expect: /incorrect api key|api\.openai\.com/i,
   },
   dsh: {
-    url: `${url(PORTS.headroomDeepseek)}/v1/chat/completions`,
-    headers: { authorization: 'Bearer agent-stack-probe' },
+    // The harness speaks Anthropic Messages to headroom, so probe that path —
+    // headroom's OpenAI-compatible one (/v1/chat/completions) is a different
+    // forwarder and proves nothing about the route the app uses.
+    url: `${url(PORTS.headroomDeepseek)}/v1/messages`,
+    headers: { 'x-api-key': 'agent-stack-probe', 'anthropic-version': '2023-06-01' },
     body: { model: 'deepseek-chat', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] },
+    expect: /authentication fails|deepseek/i,
   },
 };
 
@@ -34,7 +42,9 @@ export async function probeChain(id) {
     });
     const text = (await r.text()).slice(0, 160).replace(/\s+/g, ' ');
     // 401/403 with a provider error body = reached upstream.
-    const ok = (r.status === 401 || r.status === 403) && /auth|api.key|invalid|incorrect/i.test(text);
+    const ok = (r.status === 401 || r.status === 403)
+      && /auth|api.key|invalid|incorrect/i.test(text)
+      && (!pr.expect || pr.expect.test(text));
     return { ok, detail: `${r.status} ${text}` };
   } catch (e) {
     return { ok: false, detail: e.message };

@@ -17,7 +17,9 @@ export function serviceCommands(rt) {
     bili: rt.biliEntry && [rt.node, rt.biliEntry, 'start', '--host', '127.0.0.1', '--port', String(PORTS.bili)],
     headroom: hr(PORTS.headroom),
     headroomDeepseek: hr(PORTS.headroomDeepseek, [
-      '--openai-api-url', SERVICES.headroomDeepseek.upstream, '--provider-name', 'DeepSeek',
+      '--openai-api-url', SERVICES.headroomDeepseek.upstream,
+      '--anthropic-api-url', SERVICES.headroomDeepseek.anthropicUpstream,
+      '--provider-name', 'DeepSeek',
     ]),
     dashboard: [rt.node, path.join(REPO_ROOT, 'bin', 'agent-stack.js'), 'dashboard', '--serve'],
   };

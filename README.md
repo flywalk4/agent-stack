@@ -68,8 +68,17 @@ Why it is wired this way:
   a fourth network hop.
 - **Codex without WebSocket.** On the WS transport bili and headroom both rewrite
   `previous_response_id`, and Codex fails with `previous_response_not_found`.
-- **A separate headroom for DeepSeek** (`--openai-api-url https://api.deepseek.com`) so
-  Codex's OpenAI traffic never lands on DeepSeek.
+- **A separate headroom for DeepSeek** (`--openai-api-url https://api.deepseek.com`
+  `--anthropic-api-url https://api.deepseek.com/anthropic`) so Codex's OpenAI traffic never
+  lands on DeepSeek. Both upstreams are needed: the harness speaks Anthropic Messages, and
+  without the Anthropic URL headroom would forward DeepSeek keys and payloads to
+  api.anthropic.com.
+- **DeepSeek Harness is patched, not reconfigured.** Its profile
+  (`~/.dsh/profiles/<name>/cordis.patch.yml`) gets one entry per mounted DeepSeek route —
+  `llm-deepseek` (`baseURL`, the api-key / `deepseek-official` route) and
+  `llm-deepseek-account` (`inferenceOrigin`, the platform-account route) — both pointed at
+  headroom `:8788`. Neither endpoint is in the profile's settings storage, so this patch layer
+  is the only place that can redirect the route, and the harness has to be restarted to read it.
 
 ## Services
 
