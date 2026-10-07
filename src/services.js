@@ -134,33 +134,47 @@ export const UNIT_PREFIX = 'dev-agent-stack-';
 export const unitName = (name) => `${UNIT_PREFIX}${name}.service`;
 const systemdUserDir = () => path.join(home, '.config', 'systemd', 'user');
 
-// systemd expands `%` specifiers and `$` variables inside a unit file, and uses
-// double quotes with backslash escapes for word splitting — so every argument
-// and environment value goes through here.
-const unitWord = (s) => `"${String(s)
-  .replace(/%/g, '%%')
-  .replace(/\$/g, () => '$$')
-  .replace(/\\/g, '\\\\')
-  .replace(/"/g, '\\"')}"`;
+// systemd expands `%` specifiers and `$` variables inside a unit file. Two
+// different escaping rules apply:
+//   * command lines (ExecStart, ExecStartPre) are split with quotes/backslashes;
+//   * path settings (WorkingDirectory, StandardOutput=append:, …) are NOT
+//     unquoted — writing WorkingDirectory="/home/me" makes systemd keep the
+//     quotes and fail with `path is not absolute`, so paths there are written
+//     bare, with whitespace as C-style escapes and the home directory as `%h`.
+const pctEscape = (s) => String(s).replace(/%/g, '%%');
+const unquote = (s) => s.replace(/\$/g, () => '$$').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+const homeRef = (p) => {
+  const value = pctEscape(p);
+  const prefix = pctEscape(home);
+  return value === prefix || value.startsWith(`${prefix}/`) ? `%h${value.slice(prefix.length)}` : value;
+};
+
+const cmdWord = (s) => `"${unquote(pctEscape(s))}"`;
+const envWord = (k, v) => `"${k}=${unquote(pctEscape(v))}"`;
 
 export function systemdUnit({ name, label, argv, log, env = {}, mode = 'user' }) {
   const vars = { PATH: JOB_PATH, ...env };
+  // `%h` only means the installing user's home in a user unit; a system unit
+  // started by root would expand it to /root, so those get absolute paths.
+  const uptoHome = (p) => (mode === 'user' ? homeRef(p) : pctEscape(p));
+  const pathValue = (p) => uptoHome(p).replace(/[\s\\"]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
   return `[Unit]
 Description=agent-stack: ${label}
 
 [Service]
 Type=simple
-WorkingDirectory=${unitWord(home)}
-ExecStartPre=-/bin/mkdir -p ${unitWord(path.dirname(log))}
-ExecStart=${argv.map(unitWord).join(' ')}
-${Object.entries(vars).map(([k, v]) => `Environment=${k}=${unitWord(v)}`).join('\n')}
+WorkingDirectory=${pathValue(home)}
+ExecStartPre=-/bin/mkdir -p ${cmdWord(path.dirname(log))}
+ExecStart=${argv.map(cmdWord).join(' ')}
+${Object.entries(vars).map(([k, v]) => `Environment=${envWord(k, v)}`).join('\n')}
 Restart=always
 RestartSec=2
 KillSignal=SIGTERM
 TimeoutStopSec=20
 SyslogIdentifier=agent-stack-${name}
-StandardOutput=append:${log}
-StandardError=append:${log}
+StandardOutput=append:${pathValue(log)}
+StandardError=append:${pathValue(log)}
 
 [Install]
 WantedBy=${mode === 'user' ? 'default.target' : 'multi-user.target'}
