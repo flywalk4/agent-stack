@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>agent-stack</title>
+<style>
+  :root {
+    --surface-0: #f4f4f2; --surface-1: #fcfcfb; --border: #e3e2dd;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+    --rtk: #2a78d6; --bili: #eb6834; --headroom: #1baf7a; --upstream: #7a7974;
+    --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-0: #111110; --surface-1: #1a1a19; --border: #2e2e2c;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+      --rtk: #3987e5; --bili: #d95926; --headroom: #199e70; --upstream: #8f8e86;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+         background: var(--surface-0); color: var(--text-primary); }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px; display: grid; gap: 16px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); margin: 0 0 12px; }
+  .muted { color: var(--text-muted); }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+  .tile .k { color: var(--text-secondary); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+  .tile .v { font-size: 30px; font-weight: 650; letter-spacing: -.01em; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tile .s { color: var(--text-muted); font-size: 12px; }
+  .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+  .grid2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+
+  .chain { display: grid; grid-template-columns: 210px 1fr auto; gap: 12px; align-items: center;
+           padding: 10px 0; border-top: 1px solid var(--border); }
+  .chain:first-of-type { border-top: 0; }
+  .hops { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .hop { border: 1.5px solid var(--c, var(--upstream)); border-radius: 999px; padding: 2px 10px; font-size: 12px;
+         color: var(--text-primary); display: inline-flex; gap: 6px; align-items: center; }
+  .hop::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--upstream)); }
+  .hop.down { border-style: dashed; opacity: .7; }
+  .arrow { color: var(--text-muted); font-size: 12px; }
+  .st { font-size: 12px; display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+  .st.good { color: var(--good); } .st.bad { color: var(--critical); } .st.na { color: var(--text-muted); }
+  .st b { color: var(--text-primary); font-weight: 500; }
+  button { font: inherit; font-size: 12px; border: 1px solid var(--border); background: var(--surface-0);
+           color: var(--text-primary); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+  button:hover { border-color: var(--text-muted); }
+  .probe { grid-column: 2 / 4; font-size: 12px; color: var(--text-secondary); font-family: ui-monospace, monospace; }
+
+  .svc { display: flex; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--border); }
+  .svc:first-of-type { border-top: 0; }
+
+  .bars { display: grid; gap: 10px; }
+  .bar { display: grid; grid-template-columns: 90px 1fr 120px; gap: 10px; align-items: center; position: relative; }
+  .track { height: 14px; }
+  .fill { height: 100%; border-radius: 0 4px 4px 0; background: var(--c); min-width: 2px; }
+  .bar .val { text-align: right; font-variant-numeric: tabular-nums; }
+  .tip { position: fixed; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
+         border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); display: none; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--border); }
+  th { color: var(--text-secondary); font-weight: 500; border-top: 0; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  a { color: var(--rtk); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>agent-stack</h1>
+    <span class="muted" id="at">загрузка…</span>
+  </header>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="grid2">
+    <div class="card">
+      <h2>Цепочки агентов</h2>
+      <div id="chains"></div>
+    </div>
+    <div class="card">
+      <h2>Сервисы</h2>
+      <div id="services"></div>
+      <p class="muted" style="margin:12px 0 0;font-size:12px">
+        Подробно: <a href="http://127.0.0.1:8787/dashboard" target="_blank">headroom dashboard</a>
+      </p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Убрано токенов из запросов</h2>
+    <div class="bars" id="bars"></div>
+  </section>
+
+  <section class="card">
+    <h2>Сессии bili</h2>
+    <table>
+      <thead><tr><th>Сессия</th><th>Upstream</th><th class="n" style="text-align:right">Запросов</th><th style="text-align:right">Контекст</th></tr></thead>
+      <tbody id="sessions"></tbody>
+    </table>
+  </section>
+</main>
+<div class="tip" id="tip"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => n == null ? '—' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+// hop name → [layer color var, service id that must be up]
+const HOP = {
+  'rtk': ['--rtk', null],
+  'bili': ['--bili', 'bili'],
+  'bili-native': ['--bili', null],
+  'headroom': ['--headroom', 'headroom'],
+  'headroom-deepseek': ['--headroom', 'headroomDeepseek'],
+};
+
+function status(ok, yes, no, na = 'не найден') {
+  if (ok === null) return `<span class="st na">· ${na}</span>`;
+  return ok ? `<span class="st good">✓ <b>${yes}</b></span>` : `<span class="st bad">✗ <b>${no}</b></span>`;
+}
+
+function tiles(s) {
+  const { rtk, bili, headroom, headroomDeepseek } = s.stats;
+  const usd = headroom && headroom.costWithout != null && headroom.costWith != null
+    ? '$' + (headroom.costWithout - headroom.costWith).toFixed(2) : '—';
+  const items = [
+    ['--rtk', 'rtk · вывод команд', fmt(rtk?.tokensSaved), rtk ? `${rtk.savingsPct}% · ${rtk.commands} команд` : 'нет данных'],
+    ['--bili', 'bili · cache hit', bili ? bili.cacheHitPct + '%' : '—', bili ? `${bili.sessions} сессий · ${bili.requests} запросов` : 'не отвечает'],
+    ['--headroom', 'headroom · сжатие', fmt((headroom?.tokensSaved ?? 0) + (headroomDeepseek?.tokensSaved ?? 0)),
+      headroom ? `${headroom.savingsPct}% · ${headroom.requests + (headroomDeepseek?.requests ?? 0)} запросов` : 'не отвечает'],
+    [null, 'headroom · $ сэкономлено', usd, headroom?.costWithout != null ? `из $${headroom.costWithout.toFixed(2)} без сжатия` : ''],
+  ];
+  $('tiles').innerHTML = items.map(([c, k, v, sub]) => `
+    <div class="card tile">
+      <div class="k">${c ? `<span class="sw" style="background:var(${c})"></span>` : ''}${k}</div>
+      <div class="v">${v}</div><div class="s">${esc(sub)}</div>
+    </div>`).join('');
+}
+
+function chains(s) {
+  $('chains').innerHTML = s.agents.map((a) => {
+    const hops = a.hops.map((h) => {
+      const [c, svc] = HOP[h] ?? ['--upstream', null];
+      const down = svc && !s.services[svc]?.up;
+      return `<span class="hop${down ? ' down' : ''}" style="--c:var(${c})" title="${down ? 'сервис не отвечает' : ''}">${esc(h)}${down ? ' ✗' : ''}</span>`;
+    }).join('<span class="arrow">→</span>');
+    const st = !a.installed ? status(null) : status(a.wired, 'подключён', 'не подключён');
+    return `<div class="chain">
+      <div><div>${esc(a.label)}</div><div>${st}</div></div>
+      <div class="hops">${hops}</div>
+      <div>${a.installed && ['claude', 'codex', 'dsh'].includes(a.id) ? `<button data-probe="${a.id}">e2e</button>` : ''}</div>
+      <div class="probe" id="probe-${a.id}"></div>
+    </div>`;
+  }).join('');
+}
+
+function services(s) {
+  $('services').innerHTML = Object.entries(s.services).map(([id, v]) =>
+    `<div class="svc"><span>${esc(v.label)} <span class="muted">:${v.port}</span></span>${status(v.up, 'работает', 'не отвечает')}</div>`).join('');
+}
+
+function bars(s) {
+  const { rtk, bili, headroom, headroomDeepseek } = s.stats;
+  // bili is not here on purpose: it keeps the prefix cacheable rather than
+  // removing tokens, so its number (cache hit) lives in its tile.
+  const rows = [
+    ['rtk', '--rtk', rtk?.tokensSaved ?? 0, 'вывод shell-команд, до попадания в контекст'],
+    ['headroom', '--headroom', (headroom?.tokensSaved ?? 0) + (headroomDeepseek?.tokensSaved ?? 0), 'сжатие tool results / схем в запросе'],
+  ];
+  const max = Math.max(1, ...rows.map((r) => r[2]));
+  $('bars').innerHTML = rows.map(([name, c, v, hint]) => `
+    <div class="bar" data-tip="<b>${name}</b>: ${v.toLocaleString('ru')} ток.<br><span class=muted>${hint}</span>">
+      <span>${name}</span>
+      <div class="track"><div class="fill" style="--c:var(${c});width:${(v / max) * 100}%"></div></div>
+      <span class="val">${fmt(v)}</span>
+    </div>`).join('');
+}
+
+function sessions(s) {
+  const rows = s.stats.bili?.recent ?? [];
+  $('sessions').innerHTML = rows.length ? rows.map((x) => `<tr>
+      <td>${esc(x.title)}</td><td class="muted">${esc(x.upstream)}</td>
+      <td class="n">${x.requests}</td><td class="n">${fmt(x.contextTokens)}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="muted">нет сессий</td></tr>';
+}
+
+async function refresh() {
+  try {
+    const s = await (await fetch('/api/status')).json();
+    tiles(s); chains(s); services(s); bars(s); sessions(s);
+    $('at').textContent = 'обновлено ' + new Date(s.at).toLocaleTimeString('ru');
+  } catch (e) {
+    $('at').textContent = 'нет связи с agent-stack: ' + e.message;
+  }
+}
+
+document.addEventListener('click', async (e) => {
+  const id = e.target.dataset?.probe;
+  if (!id) return;
+  const out = $('probe-' + id);
+  out.textContent = 'проверяю…';
+  const r = await (await fetch('/api/probe?agent=' + id)).json();
+  out.innerHTML = `${r.ok ? '✓ дошёл до провайдера' : '✗ цепочка оборвана'} · ${esc(r.detail)}`;
+});
+
+const tip = $('tip');
+document.addEventListener('mousemove', (e) => {
+  const el = e.target.closest?.('[data-tip]');
+  if (!el) { tip.style.display = 'none'; return; }
+  tip.innerHTML = el.dataset.tip;
+  tip.style.display = 'block';
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + 'px';
+  tip.style.top = e.clientY + 14 + 'px';
+});
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
