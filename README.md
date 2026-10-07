@@ -82,9 +82,14 @@ Why it is wired this way:
   plugin headroom ships inside its uv tool — and points the config at that directory, which the
   V1 line loads just as well. Legacy `…/plugins/<name>/<file>.js` entries are rewritten to their
   parent directory, and the entry is written back into whichever key the config already uses
-  (`plugins` on V2-line configs, `plugin` otherwise). Caveat: headroom's and caveman's plugins
-  still implement the V1 plugin API, so a build that runs only V2 plugins
-  (`Plugin.define({ id, setup })`) will not execute them until upstream ports them.
+  (`plugins` on V2-line configs, `plugin` otherwise). Headroom's plugin is still
+  V1-only upstream, so a build that runs only V2 plugins (`Plugin.define({ id, setup })`) will
+  not execute it until upstream ports it. caveman's plugin is V1-only upstream too, so
+  agent-stack patches the installed copy to default-export both APIs at once —
+  `{ id, server, setup }`: V1 (1.18.29+) calls `server()`, V2 calls `setup()`, and both share the
+  same hook object, so the behaviour is identical on either line. `agent-stack doctor` reports
+  that patch (`caveman: plugin runs on both plugin APIs`); a caveman self-update overwrites
+  `plugin.js`, and the next `agent-stack install` re-applies it.
 - **Codex without WebSocket.** On the WS transport bili and headroom both rewrite
   `previous_response_id`, and Codex fails with `previous_response_not_found`.
 - **A separate headroom for DeepSeek** (`--openai-api-url https://api.deepseek.com`

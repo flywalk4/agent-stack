@@ -1,4 +1,5 @@
 import { collect } from './status.js';
+import { opencodeV2PatchState } from './caveman.js';
 import { CHAINS, PORTS, url } from './topology.js';
 
 // End-to-end probes with a bogus key: a provider-shaped 401 proves the request
@@ -70,6 +71,9 @@ export async function doctor({ json = false } = {}) {
     console.log(`  ${mark(a.wired)} ${a.label}: ${a.hops.join(' → ')}`);
     console.log(`      config: ${a.current ?? '—'}`);
     console.log(`      e2e:    ${mark(probes[a.id].ok)} ${probes[a.id].detail}`);
+    const cavemanPlugin = a.id === 'opencode' ? opencodeV2PatchState() : null;
+    if (cavemanPlugin === 'dual') console.log('      caveman: plugin runs on both plugin APIs (V1 server() + V2 setup())');
+    else if (cavemanPlugin === 'v1') console.log(`      caveman: ${mark(false)} V1-only plugin — re-run install to add V2 support`);
   }
   const { rtk, bili, headroomAll, headroomLedger } = s.stats;
   const n = (v) => v.toLocaleString('en-US');
