@@ -149,9 +149,20 @@ fi
 cd "$DIR"
 say "installing node dependencies"
 npm install --omit=dev --silent
-npm link --silent >/dev/null 2>&1 || true   # puts `agent-stack` on PATH
+if ! npm link --silent >/dev/null 2>&1; then
+  warn "npm link failed — run the CLI as: node $DIR/bin/agent-stack.js"
+fi
 
-if [ -e /dev/tty ] && [ -z "${AGENT_STACK_NO_TTY:-}" ]; then
+# The prompts need a real terminal. When this script is piped from curl, stdin is
+# the script itself, so the installer borrows /dev/tty — but only if stdin is not
+# already a terminal and /dev/tty can actually be opened.
+if [ -n "${AGENT_STACK_NO_TTY:-}" ]; then
+  exec node bin/agent-stack.js install "$@"
+fi
+if [ -t 0 ]; then
+  exec node bin/agent-stack.js install "$@"
+fi
+if ( exec </dev/tty ) 2>/dev/null; then
   exec node bin/agent-stack.js install "$@" </dev/tty
 fi
 exec node bin/agent-stack.js install "$@"
