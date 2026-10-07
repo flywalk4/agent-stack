@@ -1,18 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { home, isWin, which, run, out } from '../platform.js';
+import { CONFIG_PATHS, which, run, out } from '../platform.js';
 import { CHAINS, PORTS, url } from '../topology.js';
 import { backupOnce, restore, writeAtomic } from '../backup.js';
 import { parseJsonc } from '../jsonc.js';
 
-const dir = isWin && process.env.APPDATA && !fs.existsSync(path.join(home, '.config', 'opencode'))
-  ? path.join(process.env.APPDATA, 'opencode')
-  : path.join(home, '.config', 'opencode');
+const dir = CONFIG_PATHS.opencodeDir;
 
+// opencode merges config.json → opencode.json → opencode.jsonc (later wins) and
+// bili's installer writes into the highest-precedence file that already exists;
+// both probes accept all three names.
 function configFile() {
-  for (const f of ['opencode.jsonc', 'opencode.json']) {
-    if (fs.existsSync(path.join(dir, f))) return path.join(dir, f);
+  for (const f of ['opencode.jsonc', 'opencode.json', 'config.json']) {
+    const p = path.join(dir, f);
+    if (fs.existsSync(p)) return p;
   }
   return path.join(dir, 'opencode.json');
 }
@@ -58,9 +60,18 @@ function opencodeMajor() {
 }
 
 export function pluginKey(c) {
-  if (Array.isArray(c.plugins)) return 'plugins';
-  if (Array.isArray(c.plugin)) return 'plugin';
+  if (c.plugins !== undefined) return 'plugins';
+  if (c.plugin !== undefined) return 'plugin';
   return opencodeMajor() >= 2 ? 'plugins' : 'plugin';
+}
+
+// The key holds either an array of specs or an object map ({ "pkg": true }) with
+// per-entry options; a projection that turns the map into an array would drop
+// foreign entries, so every writer below keeps the shape it found.
+export function keyEntries(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === 'object') return Object.keys(raw);
+  return [];
 }
 
 export function pluginDirPath() {
@@ -113,10 +124,7 @@ export default {
     const f = configFile();
     if (!fs.existsSync(f)) return null;
     const c = parseJsonc(fs.readFileSync(f, 'utf8'));
-    const list = [
-      ...(Array.isArray(c.plugins) ? c.plugins : []),
-      ...(Array.isArray(c.plugin) ? c.plugin : []),
-    ];
+    const list = [...keyEntries(c.plugins), ...keyEntries(c.plugin)];
     return list.some(isHeadroomPlugin) ? url(PORTS.headroom) : null;
   },
 
@@ -134,14 +142,26 @@ export default {
 
     const c = fs.existsSync(f) ? parseJsonc(fs.readFileSync(f, 'utf8')) : {};
     const key = pluginKey(c);
-    c[key] = (Array.isArray(c[key]) ? c[key] : []).map(normalizeEntry).filter((p) => !isHeadroomPlugin(p));
-    c[key].push(plugin);
+    const raw = c[key];
+    if (Array.isArray(raw)) {
+      c[key] = raw.map(normalizeEntry).filter((p) => !isHeadroomPlugin(p));
+      c[key].push(plugin);
+    } else if (raw && typeof raw === 'object') {
+      for (const k of Object.keys(raw)) if (isHeadroomPlugin(k)) delete raw[k];
+      raw[plugin] = true;
+    } else {
+      c[key] = [plugin];
+    }
 
     // an older agent-stack run may have left the entry in the other key
     const other = key === 'plugins' ? 'plugin' : 'plugins';
     if (Array.isArray(c[other])) {
       c[other] = c[other].filter((p) => !isHeadroomPlugin(p));
       if (!c[other].length) delete c[other];
+    } else if (c[other] && typeof c[other] === 'object') {
+      const map = c[other];
+      for (const k of Object.keys(map)) if (isHeadroomPlugin(k)) delete map[k];
+      if (!Object.keys(map).length) delete c[other];
     }
 
     writeAtomic(f, `${JSON.stringify(c, null, 2)}\n`);
