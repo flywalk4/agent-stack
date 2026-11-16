@@ -68,16 +68,20 @@ agent  →  rtk  →  bili  →  headroom  →  provider
           └─ shrinks shell output inside the agent (hooks / rules / skills)
 ```
 
-| Layer | Where it runs | What it saves |
-|---|---|---|
-| **rtk** | inside the agent | Shell command output, shrunk before it enters the context. |
-| **bili** | local proxy `:18788` | Keeps the prompt prefix stable, so the provider prompt cache keeps hitting. Cached input is billed at a fraction of the normal price. |
-| **headroom** | local proxy `:8787` | Compresses tool results and defers tool schemas until the agent asks for them. |
-| **caveman** | inside the agent | Terse answers by default, so the model spends fewer output tokens. |
+Measured on one working install, as shown on the dashboard:
 
-The dashboard adds the layers up, but keeps the two kinds of saving apart:
-**tokens never sent** (rtk + headroom) and **tokens served from the provider cache**
-(bili). A nested row shows how much of headroom's total is deferred tool schemas.
+| Layer | Where it runs | What is saved | Share |
+|---|---|---|---|
+| **rtk** | inside the agent | Shell output, shrunk before it enters the context | **24.8%** of shell output |
+| **bili** | local proxy `:18788` | Stable prefix, so the provider prompt cache keeps hitting | **~85%** of input served from cache |
+| **headroom** | local proxy `:8787` | Compressed tool results and deferred tool schemas | **4.5%** of request tokens; **~23%** of that is schemas |
+| **caveman** | inside the agent | Terse answers by default | fewer output tokens |
+
+rtk and headroom save tokens by never sending them. bili saves money a different way:
+the tokens do go out, but hit the provider prompt cache, which is billed at roughly a
+tenth of the normal input price. The dashboard adds the layers up but keeps those two
+kinds of saving apart, and shows headroom's schemas as a nested row because they are
+part of its total, not an extra layer.
 
 ## Supported agents
 
