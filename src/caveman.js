@@ -39,17 +39,20 @@ const npxGit = () => {
   return major >= 12 ? ['--allow-git=root', '-y'] : ['-y'];
 };
 
-// Codex has no session hook for caveman, only skills (manual /caveman), so
-// the always-on rule goes into the global ~/.codex/AGENTS.md it always loads.
-async function codexAlwaysOn() {
+// Agents without a session hook get the always-on rule in the global
+// instruction file they load every time: Codex reads AGENTS.md, Qwen Code
+// reads QWEN.md.
+async function alwaysOn(f) {
   const rule = (await (await fetch(RULE_URL)).text()).trim();
-  const f = path.join(home, '.codex', 'AGENTS.md');
   backupOnce(f);
   const text = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '';
   const re = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const stripped = text.replace(new RegExp(`\\n*${re(BEGIN)}[\\s\\S]*?${re(END)}\\n?`, 'g'), '').replace(/\n*$/, '');
   writeAtomic(f, `${stripped ? `${stripped}\n\n` : ''}${BEGIN}\n${rule}\n${END}\n`);
 }
+
+const codexAlwaysOn = () => alwaysOn(path.join(home, '.codex', 'AGENTS.md'));
+const qwenAlwaysOn = () => alwaysOn(path.join(home, '.qwen', 'QWEN.md'));
 
 // Only the rule/hook layer: caveman's own `caveman <agent>` launcher and
 // proxy would add a fourth network hop in front of bili.
@@ -217,5 +220,12 @@ export const CAVEMAN = {
     // caveman ships a V1-only plugin; teach the installed copy the V2 API too.
     patchOpencodeForV2();
     return r;
+  },
+  // Qwen Code loads agent skills but has no caveman session hook, so the
+  // always-on rule goes into its global QWEN.md.
+  async qwen() {
+    ensureDefaultOn();
+    must(run('npx', [...npxGit(), 'skills', 'add', REPO, '--skill', '*', '-a', 'qwen-code', '--yes', '-g']), 'skills add caveman qwen-code');
+    await qwenAlwaysOn();
   },
 };

@@ -374,6 +374,7 @@ const HOP = {
   'bili-native': ['--bili', null],
   'headroom': ['--headroom', 'headroom'],
   'headroom-deepseek': ['--headroom', 'headroomDeepseek'],
+  'headroom-qwen': ['--headroom', 'headroomQwen'],
 };
 
 function status(ok, yes, no, na = t('notFound')) {
@@ -397,10 +398,10 @@ function health(s) {
 }
 
 function tiles(s) {
-  const { rtk, bili, headroomAll, headroom, headroomDeepseek, headroomLedger } = s.stats;
+  const { rtk, bili, headroomAll, headroom, headroomDeepseek, headroomQwen, headroomLedger } = s.stats;
   // The ledger is durable, so its numbers still stand while a proxy restarts;
   // /stats is only the fallback for a host that has no ledger yet.
-  const hr = (headroomLedger || headroom || headroomDeepseek) ? headroomAll : null;
+  const hr = (headroomLedger || headroom || headroomDeepseek || headroomQwen) ? headroomAll : null;
   const items = [
     ['--rtk', t('rtkTitle'), rtk ? fmt(rtk.tokensSaved) : '—', rtk ? t('rtkSub')(rtk) : t('rtkNo')],
     ['--bili', t('biliTitle'), bili ? fmt(bili.cached) : '—', bili ? t('biliSub')(bili) : t('biliNo')],

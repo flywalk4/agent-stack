@@ -126,6 +126,7 @@ export async function install({ yes = false } = {}) {
     layers.includes('bili') && 'bili',
     layers.includes('headroom') && 'headroom',
     layers.includes('headroom') && agents.includes('dsh') && 'headroomDeepseek',
+    layers.includes('headroom') && agents.includes('qwen') && 'headroomQwen',
     layers.includes('dashboard') && 'dashboard',
   ].filter(Boolean);
   for (const name of wanted) {

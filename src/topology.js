@@ -16,6 +16,7 @@ export const PORTS = {
   bili: 18788,
   headroom: 8787,
   headroomDeepseek: 8788,
+  headroomQwen: 8789,
   dashboard: 18800,
 };
 
@@ -48,6 +49,14 @@ export const SERVICES = {
     // clobbers the other's. The append-only events ledger stays shared (appends
     // are safe), and that is what `headroom savings` and the dashboard read.
     env: { HEADROOM_SAVINGS_PATH: path.join(home, '.headroom', 'proxy_savings.deepseek.json') },
+  },
+  headroomQwen: {
+    // Qwen's custom-provider routes cannot send x-headroom-base-url, so this
+    // instance pins their gateway as its upstream instead.
+    label: 'headroom (Qwen)',
+    port: PORTS.headroomQwen,
+    health: '/health',
+    env: { HEADROOM_SAVINGS_PATH: path.join(home, '.headroom', 'proxy_savings.qwen.json') },
   },
   dashboard: {
     label: 'agent-stack dashboard',
@@ -82,5 +91,14 @@ export const CHAINS = {
     // bili runs in-process in dsh (bili-native plugin), so no bili hop here.
     hops: ['rtk', 'bili-native', 'headroom-deepseek', 'api.deepseek.com'],
     inferenceOrigin: url(PORTS.headroomDeepseek),
+  },
+  qwen: {
+    label: 'Qwen Code',
+    // modelProviders routes carry the original gateway in
+    // `x-headroom-base-url`, so the shared headroom serves them. Custom
+    // `providers` routes cannot send that header and get their own instance.
+    hops: ['bili', 'headroom', 'provider'],
+    baseUrl: biliPrefix(`${url(PORTS.headroom)}/v1`),
+    providerBaseUrl: biliPrefix(`${url(PORTS.headroomQwen)}/v1`),
   },
 };

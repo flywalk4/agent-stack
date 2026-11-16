@@ -1,8 +1,8 @@
 # agent-stack
 
 One installer for **rtk + bili (billion-context) + headroom + caveman** in front of
-**Claude Code**, **Codex**, **OpenCode** and **DeepSeek Harness**. macOS, Linux (systemd)
-and Windows.
+**Claude Code**, **Codex**, **OpenCode**, **DeepSeek Harness** and **Qwen Code**.
+macOS, Linux (systemd) and Windows.
 
 Every request from those agents is routed through a local proxy chain that removes tokens
 before they ever reach a provider — shell output, tool results and tool schemas — while
@@ -67,6 +67,7 @@ Interactive prompts need a TTY; without one the installer exits with a hint inst
 | Codex | rtk → bili `:18788` → headroom `:8787` → chatgpt.com / api.openai.com (HTTP, no WS) |
 | OpenCode | rtk → bili-native (in-process) → headroom transport plugin → `:8787` → provider |
 | DeepSeek Harness | rtk → bili-native (dsh bundle) → headroom `:8788` → api.deepseek.com |
+| Qwen Code | bili `:18788` → headroom `:8787` → the gateway named by the selected model |
 
 Why it is wired this way:
 
@@ -101,6 +102,12 @@ Why it is wired this way:
   lands on DeepSeek. Both upstreams are needed: the harness speaks Anthropic Messages, and
   without the Anthropic URL headroom would forward DeepSeek keys and payloads to
   api.anthropic.com.
+- **Qwen Code shares headroom with every other agent.** Each `modelProviders[]` entry that
+  names a `baseUrl`, plus the legacy `model.baseUrl`, is pointed at the bili/headroom chain.
+  The original gateway is kept in that route's `generationConfig.customHeaders` as
+  `x-headroom-base-url`, which headroom honours per request, so models on different gateways
+  can share one proxy. rtk has no Qwen hook, so Qwen's chain starts at bili. Add a route in
+  Qwen Code and re-run `agent-stack install` to wire it.
 - **DeepSeek Harness is patched, not reconfigured.** Its profile
   (`~/.dsh/profiles/<name>/cordis.patch.yml`) gets one entry per mounted DeepSeek route —
   `llm-deepseek` (`baseURL`, the api-key / `deepseek-official` route) and

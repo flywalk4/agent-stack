@@ -177,7 +177,7 @@ export function mergeHeadroom(a, b) {
     ...a,
     ...Object.fromEntries(keys.map((k) => [k, pick(k)])),
     savingsPct: pick('tokensIn') ? round1((pick('tokensSaved') / pick('tokensIn')) * 100) : 0,
-    instances: 2,
+    instances: (a.instances ?? 1) + (b.instances ?? 1),
   };
 }
 
@@ -206,9 +206,10 @@ function biliSummary(s) {
 export async function collect() {
   const ups = await Promise.all(Object.values(SERVICES).map((s) => probe(s.port, s.health)));
   const services = Object.fromEntries(Object.entries(SERVICES).map(([id, s], i) => [id, { ...s, up: ups[i] }]));
-  const [hr, hrDs, bili] = await Promise.all([
+  const [hr, hrDs, hrQ, bili] = await Promise.all([
     json(SERVICES.headroom.port, '/stats'),
     json(SERVICES.headroomDeepseek.port, '/stats'),
+    json(SERVICES.headroomQwen.port, '/stats'),
     json(SERVICES.bili.port, '/__bili/stats'),
   ]);
   const agents = TARGETS.map((t) => {
@@ -222,8 +223,9 @@ export async function collect() {
   });
   const headroom = headroomSummary(hr);
   const headroomDeepseek = headroomSummary(hrDs);
+  const headroomQwen = headroomSummary(hrQ);
   const ledger = headroomLedger();
-  const liveAll = mergeHeadroom(headroom, headroomDeepseek);
+  const liveAll = mergeHeadroom(mergeHeadroom(headroom, headroomDeepseek), headroomQwen);
   // The ledger counts both proxies and every restart, so when it exists it
   // replaces the /stats figures outright instead of merging with them.
   const headroomAll = ledger ? {
@@ -246,6 +248,7 @@ export async function collect() {
     bili: biliSummary(bili),
     headroom,
     headroomDeepseek,
+    headroomQwen,
     headroomAll,
     headroomLedger: ledger,
     rtkPath: rtkPath(),

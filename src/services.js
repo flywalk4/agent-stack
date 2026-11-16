@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMac, isWin, isLinux, home, LOG_DIR, JOB_PATH, run, out, which } from './platform.js';
 import { PORTS, SERVICES } from './topology.js';
+import { qwenHeadroomUpstream } from './targets/qwen.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LABEL_PREFIX = 'dev.agent-stack.';
@@ -13,6 +14,7 @@ export function serviceCommands(rt) {
     rt.headroomPython, '-m', 'headroom.cli', 'proxy',
     '--host', '127.0.0.1', '--port', String(port), '--no-rate-limit', ...extra,
   ];
+  const qwenUpstream = qwenHeadroomUpstream();
   return {
     bili: rt.biliEntry && [rt.node, rt.biliEntry, 'start', '--host', '127.0.0.1', '--port', String(PORTS.bili)],
     headroom: hr(PORTS.headroom),
@@ -20,6 +22,10 @@ export function serviceCommands(rt) {
       '--openai-api-url', SERVICES.headroomDeepseek.upstream,
       '--anthropic-api-url', SERVICES.headroomDeepseek.anthropicUpstream,
       '--provider-name', 'DeepSeek',
+    ]),
+    headroomQwen: qwenUpstream && hr(PORTS.headroomQwen, [
+      '--openai-api-url', qwenUpstream,
+      '--provider-name', 'Qwen',
     ]),
     dashboard: [rt.node, path.join(REPO_ROOT, 'bin', 'agent-stack.js'), 'dashboard', '--serve'],
   };

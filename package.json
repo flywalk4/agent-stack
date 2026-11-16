@@ -1,7 +1,7 @@
 {
   "name": "agent-stack",
-  "version": "0.2.0",
-  "description": "One installer for rtk + billion-context (bili) + headroom across Claude Code, Codex, DeepSeek Harness — macOS, Linux and Windows",
+  "version": "0.3.0",
+  "description": "One installer for rtk + billion-context (bili) + headroom across Claude Code, Codex, OpenCode, DeepSeek Harness and Qwen Code — macOS, Linux and Windows",
   "type": "module",
   "bin": {
     "agent-stack": "bin/agent-stack.js"
@@ -12,10 +12,10 @@
   "scripts": {
     "start": "node bin/agent-stack.js",
     "dashboard": "node bin/agent-stack.js dashboard",
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "dependencies": {
-    "@clack/prompts": "^0.11.0"
+    "@clack/prompts": "^1.9.0"
   },
   "license": "MIT"
 }
