@@ -20,9 +20,11 @@ export const CONFIG_PATHS = {
   qwenSettings: path.join(home, '.qwen', 'settings.json'),
   // opencode reads $XDG_CONFIG_HOME when it is set (Linux users often set it),
   // so writing to ~/.config in that case would silently miss the host's config.
-  opencodeDir: isWin && process.env.APPDATA && !fs.existsSync(path.join(home, '.config', 'opencode'))
-    ? path.join(process.env.APPDATA, 'opencode')
-    : path.join(process.env.XDG_CONFIG_HOME?.trim() || path.join(home, '.config'), 'opencode'),
+  opencodeDir: process.env.OPENCODE_CONFIG_DIR?.trim()
+    ? path.resolve(process.env.OPENCODE_CONFIG_DIR)
+    : isWin && !process.env.XDG_CONFIG_HOME && process.env.APPDATA && !fs.existsSync(path.join(home, '.config', 'opencode'))
+      ? path.join(process.env.APPDATA, 'opencode')
+      : path.join(process.env.XDG_CONFIG_HOME?.trim() || path.join(home, '.config'), 'opencode'),
 };
 
 export function which(cmd) {

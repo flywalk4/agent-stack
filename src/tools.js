@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
+import { createHash } from 'node:crypto';
 import { isMac, isWin, home, which, run, out, resolveRuntime } from './platform.js';
 import { CAVEMAN } from './caveman.js';
 
@@ -86,42 +86,62 @@ function looksExecutable(file) {
 }
 
 async function installRtkFromRelease() {
-  const rel = await (await fetch('https://api.github.com/repos/rtk-ai/rtk/releases/latest')).json();
+  const response = await fetch('https://api.github.com/repos/rtk-ai/rtk/releases/latest', {
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new Error(`rtk release lookup failed (HTTP ${response.status})`);
+  const rel = await response.json();
+  const version = rel.tag_name?.replace(/^v/, '');
+  if (!version) throw new Error('rtk release has no version');
+  const useBinary = () => {
+    process.env.PATH = `${RTK_BIN_DIR}${path.delimiter}${process.env.PATH}`;
+  };
+  const current = run(RTK_BIN, ['--version'], { shell: false });
+  if (current.status === 0 && current.stdout.trim().split(/\s+/)[1] === version) {
+    useBinary();
+    return;
+  }
   const candidates = rtkAssets(rel.assets ?? []);
   if (!candidates.length) throw new Error(`no rtk archive for ${process.platform}/${process.arch} in ${rel.tag_name}`);
   const failures = [];
+  fs.mkdirSync(RTK_BIN_DIR, { recursive: true });
   for (const asset of candidates) {
+    // Stage on the same filesystem so a failed update leaves the old binary in place.
+    const staging = fs.mkdtempSync(path.join(RTK_BIN_DIR, '.rtk-'));
     try {
-      // Never leave a half-written file behind: a stale non-binary rtk in our bin
-      // dir shadows the real one on PATH.
-      fs.rmSync(RTK_BIN, { force: true, recursive: true });
-      fs.mkdirSync(RTK_BIN_DIR, { recursive: true });
-      const file = path.join(os.tmpdir(), asset.name);
-      const buf = Buffer.from(await (await fetch(asset.browser_download_url)).arrayBuffer());
-      fs.writeFileSync(file, buf);
+      const file = path.join(staging, isWin ? 'rtk.zip' : 'rtk.tar.gz');
+      const archive = await fetch(asset.browser_download_url, { signal: AbortSignal.timeout(120_000) });
+      if (!archive.ok) throw new Error(`download failed (HTTP ${archive.status})`);
+      const buf = Buffer.from(await archive.arrayBuffer());
       if (buf.length < 400_000) throw new Error(`download looks truncated (${buf.length} bytes)`);
+      if (asset.digest && asset.digest !== `sha256:${createHash('sha256').update(buf).digest('hex')}`) {
+        throw new Error('download checksum mismatch');
+      }
+      fs.writeFileSync(file, buf);
       if (isWin) {
         must(run('powershell.exe', ['-NoProfile', '-Command',
-          `Expand-Archive -Force -LiteralPath '${file}' -DestinationPath '${RTK_BIN_DIR}'`,
+          `Expand-Archive -LiteralPath '${file.replaceAll("'", "''")}' -DestinationPath '${staging.replaceAll("'", "''")}'`,
         ], { shell: false }), 'rtk unzip');
       } else {
-        must(run('tar', ['-xzf', file, '-C', RTK_BIN_DIR]), 'rtk untar');
+        must(run('tar', ['-xzf', file, '-C', staging]), 'rtk untar');
       }
-      const bin = findRtk(RTK_BIN_DIR);
+      const bin = findRtk(staging);
       if (!bin) throw new Error('archive did not contain an rtk binary');
       if (!looksExecutable(bin)) throw new Error(`extracted file is not a ${process.platform} binary`);
       fs.chmodSync(bin, 0o755);
-      const probe = run(bin, ['--version']);
-      if (probe.status !== 0) {
-        throw new Error(`rtk --version failed: ${(probe.stderr || probe.stdout || '').trim().slice(0, 200)}`);
+      const probe = must(run(bin, ['--version'], { shell: false }), 'rtk --version');
+      if (probe.stdout.trim().split(/\s+/)[1] !== version) {
+        throw new Error(`expected rtk ${version}, got ${probe.stdout.trim()}`);
       }
-      process.env.PATH = `${RTK_BIN_DIR}${path.delimiter}${process.env.PATH}`;
+      fs.renameSync(bin, RTK_BIN);
+      useBinary();
       return;
     } catch (e) {
       failures.push(`${asset.name}: ${e.message}`);
+    } finally {
+      fs.rmSync(staging, { force: true, recursive: true });
     }
   }
-  fs.rmSync(RTK_BIN, { force: true, recursive: true });
   throw new Error(`could not install rtk from a release archive:\n  ${failures.join('\n  ')}`);
 }
 
@@ -129,7 +149,7 @@ export const TOOLS = {
   bili: {
     label: 'bili (billion-context)',
     version: () => out('bili', ['--version']),
-    install: () => must(run('npm', ['install', '-g', 'billion-context']), 'npm i -g billion-context'),
+    install: () => must(run('npm', ['install', '-g', '--prefer-online', 'billion-context@latest']), 'npm i -g billion-context@latest'),
   },
   headroom: {
     label: 'headroom',
@@ -139,7 +159,7 @@ export const TOOLS = {
       // leaves the service crash-looping on "No module named 'fastapi'".
       must(run('uv', ['tool', 'install', '--upgrade', 'headroom-ai[proxy]']), 'uv tool install headroom-ai[proxy]');
       const py = resolveRuntime().headroomPython;
-      if (!py || !fs.existsSync(py)) return;
+      if (!py) throw new Error('headroom Python executable not found in the uv tool environment');
       // Ask headroom itself: its own guard knows which modules the proxy needs.
       const probe = run(py, ['-c', 'from headroom.cli.proxy import ensure_proxy_dependencies; ensure_proxy_dependencies()']);
       if (probe.status !== 0) {
@@ -151,12 +171,24 @@ export const TOOLS = {
     label: 'rtk',
     version: () => out('rtk', ['--version']),
     install: async () => {
-      if (isMac && which('brew')) return must(run('brew', ['install', 'rtk']), 'brew install rtk');
+      if (isMac && which('brew') && !fs.existsSync(RTK_BIN)) {
+        const installed = out('brew', ['list', '--versions', '--formula', 'rtk']);
+        const action = installed ? 'upgrade' : 'install';
+        const env = {
+          ...process.env,
+          HOMEBREW_AUTO_UPDATE_SECS: '0',
+          HOMEBREW_API_AUTO_UPDATE_SECS: '0',
+          HOMEBREW_NO_INSTALL_CLEANUP: '1',
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: '1',
+        };
+        must(run('brew', [action, '--formula', 'rtk'], { env }), `brew ${action} rtk`);
+        return;
+      }
       try {
         return await installRtkFromRelease();
       } catch (e) {
-        // No GitHub access but a rust toolchain around: build it instead.
-        if (!isWin && which('cargo')) {
+        // Keep the source-build fallback for first installs only.
+        if (!isWin && !fs.existsSync(RTK_BIN) && !which('rtk') && which('cargo')) {
           return must(run('cargo', ['install', '--git', 'https://github.com/rtk-ai/rtk']), 'cargo install rtk');
         }
         throw e;
@@ -164,8 +196,6 @@ export const TOOLS = {
     },
   },
 };
-
-export const isInstalled = (id) => Boolean(which(id === 'bili' ? 'bili' : id));
 
 // Agent-side add-ons. rtk/caveman live inside the agent (hooks, rules,
 // skills), not in the network chain — so no ordering issues with bili/headroom.

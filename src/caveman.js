@@ -4,6 +4,7 @@ import { CONFIG_PATHS, home, isWin, run, out } from './platform.js';
 import { backupOnce, writeAtomic } from './backup.js';
 
 const REPO = 'JuliusBrussee/caveman';
+const PLUGIN = 'caveman@caveman';
 const RULE_URL = `https://raw.githubusercontent.com/${REPO}/main/src/rules/caveman-activate.md`;
 const BEGIN = '<!-- caveman-begin (agent-stack) -->';
 const END = '<!-- caveman-end (agent-stack) -->';
@@ -36,14 +37,16 @@ export function ensureDefaultOn() {
 // npm 12 refuses git-hosted packages unless explicitly allowed.
 const npxGit = () => {
   const major = Number(out('npm', ['--version'])?.split('.')[0] ?? 0);
-  return major >= 12 ? ['--allow-git=root', '-y'] : ['-y'];
+  return [...(major >= 12 ? ['--allow-git=root'] : []), '--prefer-online', '-y'];
 };
 
 // Agents without a session hook get the always-on rule in the global
 // instruction file they load every time: Codex reads AGENTS.md, Qwen Code
 // reads QWEN.md.
 async function alwaysOn(f) {
-  const rule = (await (await fetch(RULE_URL)).text()).trim();
+  const response = await fetch(RULE_URL, { signal: AbortSignal.timeout(30_000) });
+  if (!response.ok) throw new Error(`caveman rules download failed (HTTP ${response.status})`);
+  const rule = (await response.text()).trim();
   backupOnce(f);
   const text = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '';
   const re = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -176,6 +179,9 @@ function supportsDualExport() {
 export function patchOpencodeForV2({ force = false } = {}) {
   const f = path.join(CONFIG_PATHS.opencodeDir, 'plugins', 'caveman', 'plugin.js');
   if (!fs.existsSync(f)) return 'not installed';
+  // Current upstream ships its own V2 entry. Editing the V1 entry would
+  // invalidate the installer’s ownership digest and block the next update.
+  if (fs.existsSync(path.join(path.dirname(f), 'server.js'))) return 'native V2';
   if (!force && !supportsDualExport()) return 'skipped (opencode < 1.18.29)';
 
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -199,25 +205,38 @@ export function patchOpencodeForV2({ force = false } = {}) {
 export function opencodeV2PatchState() {
   const f = path.join(CONFIG_PATHS.opencodeDir, 'plugins', 'caveman', 'plugin.js');
   if (!fs.existsSync(f)) return null;
+  if (fs.existsSync(path.join(path.dirname(f), 'server.js'))) return 'native';
   return fs.readFileSync(f, 'utf8').includes(V2_BEGIN) ? 'dual' : 'v1';
 }
 
 export const CAVEMAN = {
   claude() {
     ensureDefaultOn();
-    run('claude', ['plugin', 'marketplace', 'add', REPO]);
-    return must(run('claude', ['plugin', 'install', 'caveman@caveman']), 'claude plugin install caveman');
+    const markets = must(run('claude', ['plugin', 'marketplace', 'list', '--json']), 'claude marketplace list');
+    if (JSON.parse(markets.stdout).some((market) => market.name === 'caveman')) {
+      must(run('claude', ['plugin', 'marketplace', 'update', 'caveman']), 'claude marketplace update caveman');
+    } else {
+      must(run('claude', ['plugin', 'marketplace', 'add', REPO]), 'claude marketplace add caveman');
+    }
+    const plugins = must(run('claude', ['plugin', 'list', '--json']), 'claude plugin list');
+    const installed = JSON.parse(plugins.stdout).some(({ id, scope }) => id === PLUGIN && scope === 'user');
+    const action = installed ? 'update' : 'install';
+    return must(run('claude', ['plugin', action, PLUGIN, '--scope', 'user']), `claude plugin ${action} caveman`);
   },
   async codex() {
     ensureDefaultOn();
-    must(run('npx', [...npxGit(), 'skills', 'add', REPO, '--skill', '*', '-a', 'codex', '--yes', '-g']), 'skills add caveman codex');
+    must(run('npx', [...npxGit(), 'skills@latest', 'add', REPO, '--skill', '*', '-a', 'codex', '--yes', '-g']), 'skills add caveman codex');
     await codexAlwaysOn();
   },
   // Native opencode plugin auto-activates and adds the AGENTS.md ruleset.
   opencode() {
     ensureDefaultOn();
-    const r = must(run('npx', [...npxGit(), `github:${REPO}`, '--', '--only', 'opencode', '--non-interactive']), 'caveman install opencode');
-    // caveman ships a V1-only plugin; teach the installed copy the V2 API too.
+    // The upstream installer backs up legacy Caveman files when adopting them.
+    const state = opencodeV2PatchState();
+    const migrate = state === 'dual' || state === 'v1' ? ['--force'] : [];
+    const r = must(run('npx', [
+      ...npxGit(), `github:${REPO}`, '--', '--only', 'opencode', '--non-interactive', ...migrate,
+    ], { env: { ...process.env, OPENCODE_CONFIG_DIR: CONFIG_PATHS.opencodeDir } }), 'caveman install opencode');
     patchOpencodeForV2();
     return r;
   },
@@ -225,7 +244,7 @@ export const CAVEMAN = {
   // always-on rule goes into its global QWEN.md.
   async qwen() {
     ensureDefaultOn();
-    must(run('npx', [...npxGit(), 'skills', 'add', REPO, '--skill', '*', '-a', 'qwen-code', '--yes', '-g']), 'skills add caveman qwen-code');
+    must(run('npx', [...npxGit(), 'skills@latest', 'add', REPO, '--skill', '*', '-a', 'qwen-code', '--yes', '-g']), 'skills add caveman qwen-code');
     await qwenAlwaysOn();
   },
 };

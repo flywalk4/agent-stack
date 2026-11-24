@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import { isMac, isWin, isLinux, resolveRuntime } from './platform.js';
 import { CHAINS, SERVICES } from './topology.js';
 import { TARGETS } from './targets/index.js';
-import { TOOLS, ADDONS, isInstalled } from './tools.js';
+import { TOOLS, ADDONS } from './tools.js';
 import {
   serviceCommands, installService, removeService, waitHealthy, findForeignAgents, retireForeignAgent,
   systemdMode, ensureLinger,
@@ -46,7 +46,7 @@ async function chooseMode() {
   return cancelled(await p.select({
     message: 'What do you want to do?',
     options: [
-      { value: 'install', label: 'Install / update', hint: 'wire the agents, (re)start the proxy services' },
+      { value: 'install', label: 'Install / update', hint: 'update the tools, wire agents, restart services' },
       { value: 'uninstall', label: 'Uninstall', hint: 'remove the services, restore configs from backups' },
     ],
     initialValue: 'install',
@@ -97,13 +97,6 @@ export async function install({ yes = false } = {}) {
     for (const l of ['bili', 'headroom']) if (!layers.includes(l)) layers.push(l);
   }
 
-  const foreign = findForeignAgents();
-  if (foreign.length) {
-    p.log.warn(`Found your own bili/headroom services (they would take the ports):\n${foreign.join('\n')}`);
-    const ok = yes || cancelled(await p.confirm({ message: 'Disable them (rename to .disabled-by-agent-stack)?' }));
-    if (ok) foreign.forEach(retireForeignAgent);
-  }
-
   if (!yes) {
     p.note([
       `Agents: ${agents.join(', ')}`,
@@ -113,10 +106,25 @@ export async function install({ yes = false } = {}) {
     cancelled(await p.confirm({ message: 'Install?' })) || process.exit(0);
   }
 
-  // 1. tools
+  // Update tools before touching any services or agent configuration.
   for (const id of ['rtk', 'bili', 'headroom'].filter((l) => layers.includes(l))) {
-    if (isInstalled(id)) p.log.info(`${TOOLS[id].label}: ${TOOLS[id].version() ?? 'present'}`);
-    else await step(`Installing ${TOOLS[id].label}`, TOOLS[id].install);
+    const tool = TOOLS[id];
+    const before = tool.version();
+    const ok = await step(`${before ? 'Updating' : 'Installing'} ${tool.label}`, tool.install);
+    if (!ok) {
+      process.exitCode = 1;
+      p.outro('Tool setup failed. Re-run install after fixing the error above.');
+      return;
+    }
+    const after = tool.version();
+    if (after) p.log.info(`${tool.label}: ${before && before !== after ? `${before} → ` : ''}${after}`);
+  }
+
+  const foreign = findForeignAgents();
+  if (foreign.length) {
+    p.log.warn(`Found your own bili/headroom services (they would take the ports):\n${foreign.join('\n')}`);
+    const ok = yes || cancelled(await p.confirm({ message: 'Disable them (rename to .disabled-by-agent-stack)?' }));
+    if (ok) foreign.forEach(retireForeignAgent);
   }
 
   // 2. background services
@@ -126,18 +134,27 @@ export async function install({ yes = false } = {}) {
     layers.includes('bili') && 'bili',
     layers.includes('headroom') && 'headroom',
     layers.includes('headroom') && agents.includes('dsh') && 'headroomDeepseek',
-    layers.includes('headroom') && agents.includes('qwen') && 'headroomQwen',
+    layers.includes('headroom') && agents.includes('qwen') && cmds.headroomQwen && 'headroomQwen',
     layers.includes('dashboard') && 'dashboard',
   ].filter(Boolean);
+  let failed = false;
   for (const name of wanted) {
     if (!cmds[name]) {
       p.log.error(`${SERVICES[name].label}: executable not found, skipping`);
+      failed = true;
       continue;
     }
-    await step(`Service ${SERVICES[name].label} :${SERVICES[name].port}`, async () => {
+    const ok = await step(`Service ${SERVICES[name].label} :${SERVICES[name].port}`, async () => {
       installService(name, cmds[name]);
       if (!(await waitHealthy(name))) throw new Error('did not come up within 60s — check the logs');
     });
+    failed ||= !ok;
+  }
+
+  if (failed) {
+    process.exitCode = 1;
+    p.outro('Service setup failed. Re-run install after fixing the error above.');
+    return;
   }
 
   // systemd user units die with the last session unless lingering is on.
@@ -148,14 +165,21 @@ export async function install({ yes = false } = {}) {
 
   // 3. wire agents
   for (const t of TARGETS.filter((x) => agents.includes(x.id))) {
-    if (layers.includes('headroom')) await step(`${t.label}: chain ${CHAINS[t.id].hops.join(' → ')}`, () => t.apply());
+    if (layers.includes('headroom')) {
+      const ok = await step(`${t.label}: chain ${CHAINS[t.id].hops.join(' → ')}`, () => t.apply());
+      failed ||= !ok;
+    }
     for (const addon of ['rtk', 'caveman']) {
       const fn = layers.includes(addon) && ADDONS[addon][t.id];
-      if (fn) await step(`${t.label}: ${addon}`, fn);
+      if (fn) {
+        const ok = await step(`${t.label}: ${addon}`, fn);
+        failed ||= !ok;
+      }
     }
   }
 
-  p.outro(`Done. Verify: agent-stack doctor · Dashboard: http://127.0.0.1:${SERVICES.dashboard.port}`);
+  if (failed) process.exitCode = 1;
+  p.outro(`${failed ? 'Setup incomplete.' : 'Done.'} Verify: agent-stack doctor · Dashboard: http://127.0.0.1:${SERVICES.dashboard.port}`);
 }
 
 export async function uninstall() {

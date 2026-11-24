@@ -74,6 +74,7 @@ export async function doctor({ json = false } = {}) {
     console.log(`      e2e:    ${mark(probes[a.id].ok)} ${probes[a.id].detail}`);
     const cavemanPlugin = a.id === 'opencode' ? opencodeV2PatchState() : null;
     if (cavemanPlugin === 'dual') console.log('      caveman: plugin runs on both plugin APIs (V1 server() + V2 setup())');
+    else if (cavemanPlugin === 'native') console.log('      caveman: upstream V1 and V2 plugin entries installed');
     else if (cavemanPlugin === 'v1') console.log(`      caveman: ${mark(false)} V1-only plugin — re-run install to add V2 support`);
     const headroomPlugin = a.id === 'opencode' ? headroomWrapperState() : null;
     if (headroomPlugin === 'dual') console.log('      headroom: transport wrapper runs on both plugin APIs');

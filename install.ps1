@@ -38,3 +38,4 @@ Set-Location $Dir
 npm install --omit=dev --silent
 npm link --silent *> $null
 node bin/agent-stack.js install @args
+if ($LASTEXITCODE -ne 0) { throw "agent-stack install failed (exit $LASTEXITCODE)" }

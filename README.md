@@ -54,6 +54,11 @@ Debian/Ubuntu, winget on Windows), then runs the interactive installer:
 3. Which layers to install — same keys.
 4. A plan summary, then a confirmation.
 
+Each install run checks for updates to the selected tools. rtk uses Homebrew
+on macOS or GitHub releases, bili uses npm's `latest` tag, and headroom uses
+uv with the proxy extra. Caveman refreshes the selected agents' integrations.
+The installer updates the tools before restarting services and rewiring agents.
+
 From a checkout, `./install.sh` or `./install.ps1` does the same. The non-interactive
 path is `agent-stack install --yes`; prompts need a TTY, and without one the installer
 exits with a hint instead of hanging.
@@ -158,17 +163,12 @@ that directory, which the V1 line loads just as well. Legacy
 entry is written back into whichever key the config already uses (`plugins` on V2-line
 configs, `plugin` otherwise).
 
-Both plugins are dual-API (`server()` + `setup()`). Upstream ships headroom's transport
-and caveman's plugin for the V1 hook API only, so agent-stack adapts both: the generated
-headroom wrapper default-exports `{ id, server, setup }`, and caveman's installed
-`plugin.js` is patched to the same shape. On the V1 line the plugin object is loaded
-through more than one lane (1.18.29+ calls `server()`, its native lane calls `setup()`),
-so the wrapper installs the fetch transport exactly once per process and releases it
-once. Every V2 registration is guarded by a `typeof ctx.x?.y === 'function'` check, so a
-build without that seam stays inert instead of crashing. `agent-stack doctor` reports
-both (`caveman: plugin runs on both plugin APIs`, `headroom: transport wrapper runs on
-both plugin APIs`); a caveman self-update overwrites `plugin.js`, and the next
-`agent-stack install` re-applies the patch.
+The generated wrapper loads headroom's native V1 and V2 entries from current
+wheels. With older wheels it adapts the V1 transport for both APIs and installs
+and releases that transport once per process. Current Caveman releases ship
+their own V2 entry point alongside `plugin.js`. agent-stack uses both upstream
+files as shipped and keeps the adapter for older Caveman installs.
+`agent-stack doctor` shows which plugin entries it found.
 
 </details>
 
